@@ -1,0 +1,39 @@
+{
+  "name": "newlife",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "mock:model": "node scripts/mock-model-server.mjs",
+    "serve:static": "python3 -m http.server 3000 --bind 127.0.0.1 --directory out",
+    "analyze:jev": "node --experimental-strip-types scripts/analyze-jev.mjs",
+    "jev:proxy": "node scripts/jev-proxy.mjs",
+    "e2e": "node scripts/e2e-check.mjs"
+  },
+  "dependencies": {
+    "dexie": "^4.4.6",
+    "dexie-react-hooks": "^4.4.0",
+    "next": "^16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "client-only": "^0.0.1",
+    "fake-indexeddb": "^6.2.5",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
+    "typescript": "5.9.3",
+    "vitest": "^5.0.1"
+  }
+}

@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+/* ── 设计令牌：浅色纸本 ─────────────────────────────────
+ *
+ * 这套色阶的语义与深色版完全一致，只是整体反转了明度：
+ * `ink-950` 永远是「页面底色」，`ink-100` 永远是「主文字」。
+ * 因此切换主题只需要改这一处，所有 `bg-ink-*` / `text-ink-*` 的用法都不用动。
+ *
+ * 各级文字的对比度（白底）：
+ *   ink-100 ≈ 16:1   ink-200 ≈ 10:1   ink-300 ≈ 7:1
+ *   ink-400 ≈ 5:1    ink-500 ≈ 3.6:1（弱化提示，刻意压低）
+ *   ink-600 只作描边，文字用法仅限装饰性符号
+ */
+@theme {
+  /* 纸白色阶：由浅到深 */
+  --color-ink-950: #ffffff;
+  --color-ink-900: #fafbfc;
+  --color-ink-850: #f4f6f8;
+  --color-ink-800: #eef1f4;
+  --color-ink-700: #e1e6ec;
+  --color-ink-600: #c3ccd6;
+  --color-ink-500: #7a8592;
+  --color-ink-400: #6b7683;
+  --color-ink-300: #4e5866;
+  --color-ink-200: #333c48;
+  --color-ink-100: #161c24;
+
+  /* 青玉：主强调色。300/400 供文字，500/600 供描边与填充，900 是很浅的底色 */
+  --color-jade-300: #0a6b51;
+  --color-jade-400: #0d8062;
+  --color-jade-500: #12a37c;
+  --color-jade-600: #0d8a69;
+  --color-jade-900: #a7e3d0;
+
+  /* 鎏金：境界与结局 */
+  --color-gold-300: #8a6a1f;
+  --color-gold-400: #a07d2a;
+  --color-gold-500: #c9a24a;
+  --color-gold-900: #f5e6c0;
+
+  /* 朱砂：危险与死亡 */
+  --color-cinnabar-300: #a8331c;
+  --color-cinnabar-400: #c03d22;
+  --color-cinnabar-500: #d4532f;
+  --color-cinnabar-900: #f7d9d1;
+
+  /* 字体：界面用无衬线，叙事用宋体 */
+  --font-narrative: "Songti SC", "Source Han Serif SC", "Noto Serif SC",
+    "SimSun", "STSong", ui-serif, Georgia, serif;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+/* ── 基础层 ──────────────────────────────────────────── */
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-ink-100);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 背景极淡的径向色晕，避免大面积纯白显得刺眼 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(
+        60rem 40rem at 50% -10%,
+        color-mix(in oklab, var(--color-jade-500) 8%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        40rem 30rem at 90% 100%,
+        color-mix(in oklab, var(--color-gold-500) 6%, transparent),
+        transparent 70%
+      );
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-jade-500) 26%, transparent);
+    color: var(--color-ink-100);
+  }
+
+  /* 细滚动条，贴合浅色主题 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-600) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-ink-600);
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-ink-500);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-jade-500);
+    outline-offset: 2px;
+  }
+}
+
+/* ── 组件层 ──────────────────────────────────────────── */
+@layer components {
+  /* 叙事正文：行距放宽，首行不缩进，段落之间留白 */
+  .prose-narrative {
+    font-family: var(--font-narrative);
+    font-size: 1.0625rem;
+    line-height: 2;
+    letter-spacing: 0.02em;
+  }
+
+  .prose-narrative p + p {
+    margin-top: 0.9em;
+  }
+}
+
+/* ── 动画 ────────────────────────────────────────────── */
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility animate-fade-rise {
+  animation: fade-rise 0.4s ease-out both;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@utility animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-rise,
+  .animate-pulse-soft {
+    animation: none;
+  }
+}

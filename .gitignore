@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+.DS_Store
+*.local
+*.tsbuildinfo
+next-env.d.ts
+.env
+.env.*
+.jev-key
+.workbuddy-ai/
+.worktrees/
