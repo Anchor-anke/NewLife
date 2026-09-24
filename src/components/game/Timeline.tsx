@@ -9,6 +9,7 @@ import type {
   LifeSegmentRecord,
   WorldSetting,
 } from '@/lib/engine/types';
+import { openLifeRules, visibleAttributes } from '@/lib/engine/ruleset';
 
 /**
  * 年表。
@@ -47,7 +48,7 @@ const KIND_TONES: Record<EntryKind, Tone> = {
 };
 
 function diffAttributes(world: WorldSetting, record: LifeSegmentRecord) {
-  return world.attributes
+  return visibleAttributes(world)
     .map((definition) => {
       const from = record.characterBefore.attributes[definition.key] ?? definition.initialValue;
       const to = record.resolvedCharacter.attributes[definition.key] ?? from;
@@ -61,18 +62,18 @@ function realmOf(world: WorldSetting, character: CharacterState): number {
 }
 
 /** 单条条目。默认折叠，只有 milestone 例外。 */
-function EntryRow({ entry }: { entry: LifeEntry }) {
+function EntryRow({ entry, entering = false, openLife = false }: { entry: LifeEntry; entering?: boolean; openLife?: boolean }) {
   const [open, setOpen] = useState(entry.kind === 'milestone');
 
   return (
-    <li className="py-1">
+    <li className={entering ? 'animate-fade-rise py-1' : 'py-1'}>
       <div className="flex items-start gap-2">
         <span className="mt-[0.4rem] size-1.5 shrink-0 rounded-full bg-ink-500" aria-hidden />
         <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink-200">
           {entry.age > 0 && <span className="mr-2 text-ink-500 tabular-nums">{entry.age} 岁</span>}
           {entry.text}
         </p>
-        <Badge tone={KIND_TONES[entry.kind]}>{KIND_LABELS[entry.kind]}</Badge>
+        <Badge tone={KIND_TONES[entry.kind]}>{openLife && entry.kind === 'cultivation' ? '经历' : KIND_LABELS[entry.kind]}</Badge>
         {entry.detail !== undefined && (
           <button
             type="button"
@@ -95,9 +96,10 @@ function EntryRow({ entry }: { entry: LifeEntry }) {
 /** 段落末尾的折叠元信息：属性增减、突破、修正记录。 */
 function SegmentMeta({ world, record }: { world: WorldSetting; record: LifeSegmentRecord }) {
   const changes = diffAttributes(world, record);
-  const realmFrom = realmOf(world, record.characterBefore);
-  const realmTo = realmOf(world, record.resolvedCharacter);
-  const breakthroughs = Math.max(0, realmTo - realmFrom);
+  const open = openLifeRules(world);
+  const realmFrom = open ? 0 : realmOf(world, record.characterBefore);
+  const realmTo = open ? 0 : realmOf(world, record.resolvedCharacter);
+  const breakthroughs = open ? 0 : Math.max(0, realmTo - realmFrom);
   const warnings = record.validationWarnings;
 
   if (changes.length === 0 && breakthroughs === 0 && warnings.length === 0) return null;
@@ -161,12 +163,16 @@ function SegmentBlock({
   world,
   record,
   showYears,
+  visibleCount,
 }: {
   world: WorldSetting;
   record: LifeSegmentRecord;
   showYears: boolean;
+  visibleCount?: number;
 }) {
-  const entries = record.segment.entries;
+  const entries = visibleCount === undefined
+    ? record.segment.entries
+    : record.segment.entries.slice(0, visibleCount);
 
   // 按年龄分组。条目年龄已在规整层校正为单调不减，因此顺序分组即可。
   const groups: { age: number; entries: LifeEntry[] }[] = [];
@@ -210,14 +216,21 @@ function SegmentBlock({
             )}
             <ul>
               {group.entries.map((entry, index) => (
-                <EntryRow key={`${entry.age}-${index}-${entry.text}`} entry={entry} />
+                <EntryRow
+                  key={`${entry.age}-${index}-${entry.text}`}
+                  entry={entry}
+                  openLife={openLifeRules(world) !== undefined}
+                  entering={visibleCount !== undefined}
+                />
               ))}
             </ul>
           </div>
         ))}
       </div>
 
-      <SegmentMeta world={world} record={record} />
+      {visibleCount === undefined || visibleCount >= record.segment.entries.length ? (
+        <SegmentMeta world={world} record={record} />
+      ) : null}
     </section>
   );
 }
@@ -228,10 +241,12 @@ export function Timeline({
   world,
   segments,
   view = 'chronicle',
+  reveal,
 }: {
   world: WorldSetting;
   segments: readonly LifeSegmentRecord[];
   view?: TimelineView;
+  reveal?: { segmentId: number; visibleCount: number } | null;
 }) {
   if (segments.length === 0) {
     return (
@@ -249,6 +264,7 @@ export function Timeline({
           world={world}
           record={record}
           showYears={view === 'chronicle'}
+          visibleCount={reveal?.segmentId === record.segmentId ? reveal.visibleCount : undefined}
         />
       ))}
     </div>

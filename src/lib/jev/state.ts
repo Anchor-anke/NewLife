@@ -5,6 +5,7 @@ import type {
   WorldSetting,
 } from '@/lib/engine/types';
 import { tierName } from '@/lib/engine/labels';
+import { openLifeRules, visibleAttributes } from '@/lib/engine/ruleset';
 
 /**
  * Jev 打分的 state 组装。
@@ -35,6 +36,7 @@ export interface JevStateInput {
   world: WorldSetting;
   character: CharacterState;
   worldStatus: string;
+  worldAttributes?: Record<string, number>;
   historySummary: string;
   recentSegments: readonly LifeSegmentRecord[];
   decision: DecisionPoint;
@@ -52,6 +54,19 @@ function tail(text: string, limit: number): string {
 
 /** 单行紧凑角色快照。阶位键是序号，只以阶位名的形式出现，不暴露裸索引。 */
 function formatCharacterLine(world: WorldSetting, character: CharacterState): string {
+  if (openLifeRules(world)) {
+    const parts = [`${character.age} 岁`];
+    const attributes = visibleAttributes(world)
+      .map((definition) => `${definition.label} ${character.attributes[definition.key] ?? definition.initialValue}`);
+    if (attributes.length > 0) parts.push(attributes.join('、'));
+    if (character.traits.length > 0) parts.push(`特质：${character.traits.slice(0, TRAIT_LIMIT).join('、')}`);
+    if (character.inventory.length > 0) parts.push(`持有：${character.inventory.join('、')}`);
+    const relationships = Object.entries(character.relationships);
+    if (relationships.length > 0) {
+      parts.push(`关系：${relationships.map(([name, relation]) => `${name}（${relation}）`).join('、')}`);
+    }
+    return parts.join('；');
+  }
   const { realmKey, cultivationKey, cultivationMax, lifespanByRealm } = world.mechanics;
   const realm = character.attributes[realmKey] ?? 0;
   const lifespan = lifespanByRealm[realm] ?? Number.POSITIVE_INFINITY;
@@ -112,6 +127,14 @@ export function buildJevState(input: JevStateInput): string {
 
   const status = tail(input.worldStatus, WORLD_STATUS_CHAR_LIMIT);
   if (status !== '') lines.push(`【世界局势】${status}`);
+  if (world.worldAttributes && input.worldAttributes) {
+    const stage = openLifeRules(world)?.worldProgress;
+    const values = world.worldAttributes.map((attribute) => {
+      const value = input.worldAttributes?.[attribute.key] ?? attribute.initialValue;
+      return `${attribute.label} ${attribute.key === stage?.stageKey ? stage.stageNames[value] ?? value : value}`;
+    });
+    lines.push(`【世界进展】${values.join('、')}`);
+  }
 
   const summary = tail(input.historySummary, SUMMARY_CHAR_LIMIT);
   if (summary !== '') lines.push(`【经历摘要】${summary}`);

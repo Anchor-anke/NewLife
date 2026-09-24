@@ -8,7 +8,7 @@ export default function NewGamePage() {
       <header className="space-y-2">
         <h1 className="font-narrative text-2xl tracking-widest text-ink-100">开始新的一生</h1>
         <p className="text-sm leading-relaxed text-ink-400">
-          先定世界观与资质。这两项决定了你一生的天花板——之后能走多远，就看你怎么用掉有限的寿元。
+          先选世界，再设定人物的起点。每个世界有自己的成长方式、重要抉择与结局。
         </p>
       </header>
       <CharacterCreator />

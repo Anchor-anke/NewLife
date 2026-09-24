@@ -16,7 +16,7 @@ import { useModelSettings } from '@/lib/hooks/useModelSettings';
 import { useSaveBundle } from '@/lib/hooks/useSaves';
 import { generateEpilogueForSave } from '@/lib/services/gameService';
 import { maintainMemory, submitSegment } from '@/lib/services/segmentService';
-import { abandonPendingSegment } from '@/lib/storage/saves';
+import { abandonPendingSegment, getSaveBundle } from '@/lib/storage/saves';
 
 interface ActionError {
   message: string;
@@ -28,6 +28,8 @@ const VIEW_LABELS: Record<TimelineView, string> = {
   chronicle: '年表',
   stream: '事件流',
 };
+
+const ENTRY_REVEAL_INTERVAL_MS = 420;
 
 export function PlayClient() {
   const searchParams = useSearchParams();
@@ -43,6 +45,7 @@ export function PlayClient() {
   const [epilogueError, setEpilogueError] = useState<string | null>(null);
   const [view, setView] = useState<TimelineView>('chronicle');
   const [autoRemaining, setAutoRemaining] = useState(0);
+  const [reveal, setReveal] = useState<{ segmentId: number; visibleCount: number } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastSeenSegmentRef = useRef(0);
@@ -67,6 +70,7 @@ export function PlayClient() {
       world: save.world,
       character: save.character,
       worldStatus: save.worldStatus,
+      ...(save.worldAttributes ? { worldAttributes: save.worldAttributes } : {}),
       historySummary: save.historySummary,
       recentSegments: selectRecentWindow(
         segments.slice(-MAX_WINDOW_SEGMENTS),
@@ -80,13 +84,20 @@ export function PlayClient() {
     decisionRecord ? `${saveId ?? ''}:${decisionRecord.segmentId}` : null,
   );
 
-  // 新段落落盘后自动滚到最新处，免得玩家每次都要手动往下拖
+  // 新段落及每条新条目出现时，跟随滚到年表末尾。
   useEffect(() => {
-    if (latestSegmentId > lastSeenSegmentRef.current) {
+    const isNewSegment = latestSegmentId > lastSeenSegmentRef.current;
+    if (isNewSegment) {
       lastSeenSegmentRef.current = latestSegmentId;
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [latestSegmentId]);
+    if (isNewSegment || (reveal?.segmentId === latestSegmentId && reveal.visibleCount > 0)) {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      bottomRef.current?.scrollIntoView({
+        behavior: reducedMotion ? 'auto' : 'smooth',
+        block: 'end',
+      });
+    }
+  }, [latestSegmentId, reveal?.segmentId, reveal?.visibleCount]);
 
   /**
    * 推进若干段。
@@ -101,11 +112,14 @@ export function PlayClient() {
     pausedRef.current = false;
     setError(null);
     setStage('generating');
+    let nextSegmentId = latestSegmentId + 1;
 
     try {
       for (let index = 0; index < count; index += 1) {
         if (pausedRef.current) break;
         setAutoRemaining(count - index);
+        setStage('generating');
+        setReveal({ segmentId: nextSegmentId, visibleCount: 0 });
 
         const action = index === 0 ? firstAction : undefined;
         const result = await submitSegment({
@@ -146,6 +160,28 @@ export function PlayClient() {
           return;
         }
 
+        nextSegmentId = result.segmentId + 1;
+        setStage(null);
+        const committed = await getSaveBundle(saveId);
+        const entryCount = committed.segments.find(
+          (record) => record.segmentId === result.segmentId,
+        )?.segment.entries.length ?? 0;
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        if (!reducedMotion && entryCount > 0) {
+          setReveal({ segmentId: result.segmentId, visibleCount: 1 });
+          for (let visibleCount = 2; visibleCount <= entryCount; visibleCount += 1) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, ENTRY_REVEAL_INTERVAL_MS);
+            });
+            setReveal({ segmentId: result.segmentId, visibleCount });
+          }
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, ENTRY_REVEAL_INTERVAL_MS);
+          });
+        }
+        setReveal(null);
+
         if (result.decision) break;
         if (result.resolution.ending) break;
 
@@ -157,6 +193,7 @@ export function PlayClient() {
     } finally {
       setAutoRemaining(0);
       setStage(null);
+      setReveal(null);
       busyRef.current = false;
     }
   }
@@ -212,9 +249,34 @@ export function PlayClient() {
     );
   }
 
-  const busy = stage !== null;
+  const busy = stage !== null || reveal !== null;
   const pendingSegment = pending[0];
   const pendingDecision = decisionRecord?.segment.decision;
+  const revealingRecord = reveal
+    ? segments.find((record) => record.segmentId === reveal.segmentId)
+    : undefined;
+  const visibleEntry = revealingRecord && reveal && reveal.visibleCount > 0
+    ? revealingRecord.segment.entries[reveal.visibleCount - 1]
+    : undefined;
+  const presentedCharacter = revealingRecord && reveal &&
+    reveal.visibleCount < revealingRecord.segment.entries.length
+    ? {
+        ...revealingRecord.characterBefore,
+        age: visibleEntry?.age ?? revealingRecord.characterBefore.age,
+        attributes: visibleEntry?.settledAttributes ?? revealingRecord.characterBefore.attributes,
+      }
+    : save.character;
+  const previousRecord = revealingRecord
+    ? segments.find((record) => record.segmentId === revealingRecord.segmentId - 1)
+    : undefined;
+  const presentedWorldStatus = revealingRecord && reveal &&
+    reveal.visibleCount < revealingRecord.segment.entries.length
+    ? previousRecord?.resolvedWorldStatus ?? save.world.initialWorldStatus
+    : save.worldStatus;
+  const presentedWorldAttributes = revealingRecord && reveal &&
+    reveal.visibleCount < revealingRecord.segment.entries.length
+    ? visibleEntry?.settledWorldAttributes ?? revealingRecord.worldAttributesBefore
+    : save.worldAttributes;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -314,10 +376,10 @@ export function PlayClient() {
           </div>
         )}
 
-        <Timeline world={save.world} segments={segments} view={view} />
+        <Timeline world={save.world} segments={segments} view={view} reveal={reveal} />
         <div ref={bottomRef} />
 
-        {pendingDecision && (
+        {pendingDecision && !reveal && (
           <DecisionCard
             decision={pendingDecision}
             age={save.character.age}
@@ -327,18 +389,21 @@ export function PlayClient() {
           />
         )}
 
-        <EndingPanel
-          save={save}
-          generating={epilogueGenerating}
-          error={epilogueError}
-          onGenerate={handleGenerateEpilogue}
-        />
+        {!reveal && (
+          <EndingPanel
+            save={save}
+            generating={epilogueGenerating}
+            error={epilogueError}
+            onGenerate={handleGenerateEpilogue}
+          />
+        )}
 
         {!pendingDecision && (
           <AdvanceBar
             hasSegments={segments.length > 0}
             busy={busy || !adapter}
             stage={stage}
+            presenting={reveal !== null && stage === null}
             isEnded={save.status === 'ended'}
             running={autoRemaining > 0}
             remaining={autoRemaining}
@@ -350,7 +415,7 @@ export function PlayClient() {
 
       {/* top 需要给悬浮导航让位：导航条约 53px，再留出原有间距 */}
       <aside className="lg:sticky lg:top-20 lg:self-start">
-        <StatusPanel world={save.world} character={save.character} worldStatus={save.worldStatus} />
+        <StatusPanel world={save.world} character={presentedCharacter} worldStatus={presentedWorldStatus} worldAttributes={presentedWorldAttributes} />
 
         {save.historySummary.trim() !== '' && (
           <div className="mt-4">

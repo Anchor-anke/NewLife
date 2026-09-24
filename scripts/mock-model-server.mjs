@@ -164,14 +164,11 @@ function readRealm(userMessage) {
   return extract(/当前阶位「([^」]+)」/, userMessage, REALMS[0]);
 }
 
-/** 依据提示词里带上的角色硬状态，编一段读起来像那么回事的叙事。 */
-function buildNarrative(userMessage, seed) {
-  const age = extract(/年龄：(\d+)\s*岁/, userMessage, '?');
-  const realm = readRealm(userMessage);
-
+/** 模拟模型写剧情，但不预判由程序结算的突破结果。 */
+function buildNarrative(seed) {
   return [
     pick(OPENINGS, seed),
-    `你今年 ${age} 岁，${realm}阶的修为还差得远。${pick(CLOSINGS, seed + 7)}`,
+    `你试着冲击眼前的瓶颈，结果仍要交给这段岁月检验。${pick(CLOSINGS, seed + 7)}`,
   ].join('');
 }
 
@@ -211,7 +208,7 @@ function buildEntries(startAge, timeAdvance, callIndex) {
   }
 
   // 收尾放一条 milestone 并展开成完整叙事，好让年表上出现一个「重要时刻」。
-  // detail 的内容由调用方按角色当下的年龄与阶位生成，模拟真实模型会写的长文。
+  // detail 保持中性，突破结果由结算层写入年表。
   const last = entries[entries.length - 1];
   last.kind = 'milestone';
   last.text = ENTRY_TEXTS.milestone[0];
@@ -220,6 +217,57 @@ function buildEntries(startAge, timeAdvance, callIndex) {
 }
 
 function buildSegmentResponse(userMessage, callIndex) {
+  if (userMessage.includes('人物年龄、属性和关系只以')) {
+    const startAge = Number(extract(/年龄：(\d+)\s*岁/, userMessage, '18'));
+    const custom = userMessage.includes('荒原书屋');
+    const star = userMessage.includes('殖民地阶段') || userMessage.includes('长夜号');
+    const ashen = userMessage.includes('冒险者公会') || userMessage.includes('灰烬领');
+    const entries = star ? [
+      { age: startAge + 1, kind: 'event', text: '维修队更换了穹顶的循环泵，农场重新通上了水' },
+      { age: startAge + 1, kind: 'relationship', text: '你和工程师林澈轮流值夜，把旧图纸重新整理了一遍' },
+      { age: startAge + 2, kind: 'setback', text: '备用零件在沙尘里磨损，施工队不得不停工一周' },
+      { age: startAge + 3, kind: 'milestone', text: '第一座新的生态仓完成验收，殖民地多了一份活下去的把握' },
+    ] : ashen ? [
+      { age: startAge + 1, kind: 'event', text: '你接下了裂谷边缘的护送委托，与三名同伴一同出发' },
+      { age: startAge + 1, kind: 'relationship', text: '回程时你把受伤的队友背过山口，对方记下了这份情' },
+      { age: startAge + 2, kind: 'setback', text: '你在一场遭遇战里扭伤了肩，休息了很长一段时间' },
+      { age: startAge + 3, kind: 'milestone', text: '委托完成后，公会核对了证词和报酬，准备重新评定你' },
+    ] : custom ? [
+      { age: startAge + 1, kind: 'event', text: '邻居送来一捆干柴，你用修好的书架换下了一袋旧纸' },
+      { age: startAge + 1, kind: 'relationship', text: '一个孩子每天来借书，你开始教她辨认地图上的地名' },
+      { age: startAge + 2, kind: 'setback', text: '严冬让屋顶漏了雪，你和邻居花了两天才把它堵住' },
+      { age: startAge + 3, kind: 'milestone', text: '你决定把图书馆开放的日子固定下来，让更多人能读书' },
+    ] : [
+      { age: startAge + 1, kind: 'event', text: '公司换了新的负责人，你接手了一项没人愿意碰的工作' },
+      { age: startAge + 1, kind: 'relationship', text: '下班后你和旧友在街边小店谈到很晚，约好常联系' },
+      { age: startAge + 2, kind: 'setback', text: '连续加班让你疲惫不堪，你终于请假去做了检查' },
+      { age: startAge + 3, kind: 'milestone', text: '你决定重新安排工作与生活，把周末留给自己' },
+    ];
+    const mustStop = userMessage.includes('必须给出一个 decision');
+    const payload = {
+      entries,
+      timeAdvance: 3,
+      attributeDeltas: star ? { work: 3, health: -1, resolve: 2 }
+        : ashen ? { exploits: 4, health: -1, rank: 1 }
+          : { career: 3, health: -1, spirit: 2, wealth: 1 },
+      ...(star ? { worldDeltas: { progress: 25, tech: 2, resources: -2 } } : {}),
+      worldStatusUpdate: star
+        ? `生态仓正在扩建，公共资源仍然紧张。（第 ${callIndex} 次推演）`
+        : ashen
+          ? `裂谷一带的委托仍在增加。（第 ${callIndex} 次推演）`
+          : custom
+        ? `图书馆依然开放，补给线路仍未恢复。（第 ${callIndex} 次推演）`
+        : `这座城市的生活节奏仍在变化。（第 ${callIndex} 次推演）`,
+    };
+    if (state.proposeDecision || mustStop) {
+      payload.decision = {
+        prompt: '你收到一份新的工作邀请，同时家里也需要你留下照顾。',
+        stakes: '收入、健康和亲近的人都可能因此改变。',
+        options: ['接受邀请', '留在原处', '先和家人商量'],
+      };
+    }
+    return payload;
+  }
   const startAge = Number(extract(/年龄：(\d+)\s*岁/, userMessage, '16'));
   const realmIndex = Math.max(0, REALMS.indexOf(readRealm(userMessage)));
 
@@ -227,7 +275,7 @@ function buildSegmentResponse(userMessage, callIndex) {
 
   const entries = buildEntries(startAge, timeAdvance, callIndex);
   // 只有重要条目才给 detail——这是提示词里的要求，模拟服务也得守
-  entries[entries.length - 1].detail = buildNarrative(userMessage, callIndex);
+  entries[entries.length - 1].detail = buildNarrative(callIndex);
 
   const deltas = {};
   if (callIndex % 2 === 0) deltas.comprehension = 2;
@@ -363,6 +411,27 @@ function buildForgeResponse(userMessage) {
       deathByProposal: '{reason}。你的一生在此戛然而止，享年 {age} 岁。',
       completionByProposal: '{reason}。你的故事在此收束，享年 {age} 岁。',
     },
+  };
+}
+
+function buildOpenForgeResponse(userMessage) {
+  const premise = extract(/「([^」]*)」/, userMessage, '灾后图书馆');
+  return {
+    name: '荒原书屋',
+    description: `灾后荒原上，${premise}。你守着一座还在开放的图书馆，与邻居一起熬过严冬。`,
+    initialWorldStatus: '补给线路中断，读者与邻居为了取暖开始争执。',
+    rules: ['食物要靠交换取得。', '严冬会损伤健康。', '图书馆的书无法重印。'],
+    startingAge: 24,
+    attributeLabels: {
+      career: '守书', health: '体魄', insight: '学识', empathy: '人缘',
+      fortune: '机运', spirit: '心气', wealth: '物资',
+    },
+    talents: [
+      { name: '旧馆员', description: '记得每本书的位置。', bonusKey: 'insight', bonus: 12 },
+      { name: '修理匠', description: '能修复破损的器具。', bonusKey: 'career', bonus: 10 },
+      { name: '孤僻者', description: '习惯一个人工作。', bonusKey: 'empathy', bonus: -8 },
+    ],
+    lethalEventKeywords: ['重伤', '冻死', '濒死'],
   };
 }
 
@@ -549,6 +618,8 @@ const server = createServer(async (request, response) => {
     content = buildSummaryResponse(user, callIndex);
   } else if (system.includes('生平总结')) {
     content = buildEpilogueResponse(user);
+  } else if (system.includes('选择了「开放人生」')) {
+    content = JSON.stringify(buildOpenForgeResponse(user));
   } else if (system.includes('世界观设计师')) {
     // 自定义世界生成：多一次模型往返、响应更长，延迟也拉长一些
     content = JSON.stringify(buildForgeResponse(user));

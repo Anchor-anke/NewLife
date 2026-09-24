@@ -166,6 +166,36 @@ export interface WorldMechanics {
 }
 
 /**
+ * 非阶位人生的第一套规则。旧世界快照没有 ruleset，始终按原阶位规则运行。
+ * 过渡期仍保留 WorldMechanics 字段供旧世界工坊和模拟器使用；open_life 结算
+ * 不读取其中的阶位、突破或寿元表。
+ */
+export interface OpenLifeRules {
+  kind: 'open_life';
+  version: 2;
+  healthKey: string;
+  spiritKey: string;
+  careerKey: string;
+  luckKey: string;
+  lethalEventKeywords: string[];
+  startingAge: number;
+  /** 仅供旧结算使用、不在新玩法出现的属性键。 */
+  legacyHiddenKeys: string[];
+  agingStartAge: number;
+  annualHealthLoss: number;
+  maxAge: number;
+  completionMinAge: number;
+  maxDeltaPerSegment: number;
+  segmentSoftLimit: number;
+  naturalDeath: { reason: string; narrative: string };
+  healthDeath: { reason: string; narrative: string };
+  /** 评级由有证据的委托或机构评定推动，每段最多升一级。 */
+  earnedRank?: { key: string; evidenceKeywords: string[] };
+  /** 集体建设的阶段属于世界，不能作为人物的寿命等级。 */
+  worldProgress?: { stageKey: string; progressKey: string; stageNames: string[]; threshold: number };
+}
+
+/**
  * 结局文本模板。
  *
  * 这些文字原本写死在结算层里，全是修仙措辞（「羽化飞升」「坐化」），
@@ -201,7 +231,11 @@ export interface WorldSetting {
   initialWorldStatus: string;
   timeUnit: 'year' | 'month' | 'day';
   attributes: AttributeDefinition[];
+  /** 与人物属性分开的世界状态定义；旧世界快照没有此字段。 */
+  worldAttributes?: AttributeDefinition[];
   mechanics: WorldMechanics;
+  /** 缺失表示 v1 阶位寿元规则，保证旧存档与旧自定义世界的行为不变。 */
+  ruleset?: OpenLifeRules;
   talents: Talent[];
   endings: WorldEndingTexts;
 }
@@ -244,6 +278,9 @@ export interface LifeEntry {
   text: string;
   /** 可选。只有重要条目才给，100~200 字的完整叙事 */
   detail?: string;
+  /** 程序结算的条目时点属性快照，供逐条呈现时同步状态栏；旧存档可缺失。 */
+  settledAttributes?: Record<string, number>;
+  settledWorldAttributes?: Record<string, number>;
 }
 
 /**
@@ -254,7 +291,7 @@ export interface LifeEntry {
  * - `near-end`     寿元进入末段
  * - `long-gap`     距上次介入太久，强制给一次参与感
  */
-export type DecisionCause = 'proposed' | 'breakthrough' | 'near-end' | 'long-gap';
+export type DecisionCause = 'proposed' | 'breakthrough' | 'near-end' | 'life-turn' | 'long-gap';
 
 /** 模型提议的岔路。此时还没有成因，成因由程序判定后补上。 */
 export interface DecisionProposal {
@@ -283,6 +320,7 @@ export interface SegmentProposal {
   /** 本段覆盖的时间增量，单位由 world.timeUnit 决定 */
   timeAdvance: number;
   attributeDeltas: Record<string, number>;
+  worldDeltas?: Record<string, number>;
   worldStatusUpdate?: string;
   traitOps?: ListOp[];
   inventoryOps?: ListOp[];
@@ -305,6 +343,7 @@ export interface LifeSegment {
   entries: LifeEntry[];
   timeAdvance: number;
   attributeDeltas: Record<string, number>;
+  worldDeltas?: Record<string, number>;
   worldStatusUpdate?: string;
   traitOps?: ListOp[];
   inventoryOps?: ListOp[];
@@ -396,6 +435,8 @@ export interface AttributeChange {
  */
 export type EndingCause =
   | 'lifespan'
+  | 'health'
+  | 'old-age'
   | 'collapse'
   | 'ascension'
   | 'turn-limit'
@@ -430,6 +471,7 @@ export interface ResolveBreakdown {
 export interface ResolveResult {
   character: CharacterState;
   worldStatus: string;
+  worldAttributes?: Record<string, number>;
   /** 校验或修正过程中产生的审计轨迹，例如丢弃未知属性键、越界 clamp */
   warnings: string[];
   ending?: Ending;
@@ -449,10 +491,13 @@ export interface ResolveResult {
 export interface SaveRecord {
   id: string;
   schemaVersion: number;
+  /** 规则语义版本；旧存档缺失时视为 v1。与存档对象版本独立。 */
+  rulesetVersion?: number;
   /** 乐观并发版本号，每次成功提交段落 +1 */
   revision: number;
   world: WorldSetting;
   worldStatus: string;
+  worldAttributes?: Record<string, number>;
   character: CharacterState;
   historySummary: string;
   /** 已包含在 historySummary 中的连续最后一个 segmentId（含） */
@@ -507,8 +552,10 @@ export interface LifeSegmentRecord {
   segment: LifeSegment;
   /** 本段开始前的角色状态。让每条记录都能独立解释「从什么变成了什么」。 */
   characterBefore: CharacterState;
+  worldAttributesBefore?: Record<string, number>;
   resolvedCharacter: CharacterState;
   resolvedWorldStatus: string;
+  resolvedWorldAttributes?: Record<string, number>;
   ending?: Ending;
   validationWarnings: string[];
   modelMeta: ModelMeta;
@@ -553,6 +600,7 @@ export interface GameSaveExport {
 export interface SegmentContext {
   world: WorldSetting;
   worldStatus: string;
+  worldAttributes?: Record<string, number>;
   character: CharacterState;
   historySummary: string;
   recentSegments: LifeSegmentRecord[];
@@ -565,7 +613,7 @@ export interface SegmentContext {
    * `proposed` 也不是程序能预先强制的。写成窄联合而不是 `DecisionCause`，
    * 是为了让「哪些原因能提前知道」这件事在类型上就说得清楚。
    */
-  mustStop?: 'near-end' | 'long-gap';
+  mustStop?: 'near-end' | 'life-turn' | 'long-gap';
 }
 
 export interface SummaryInput {

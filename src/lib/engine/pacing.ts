@@ -3,6 +3,7 @@ import {
   TIME_ADVANCE_MIN,
   type WorldSetting,
 } from './types';
+import { openLifeRules } from './ruleset';
 
 /**
  * 节奏参数。
@@ -121,6 +122,7 @@ export function decisionIntervalFor(world: WorldSetting): number {
  * 下限则由 `TIME_ADVANCE_MIN` 兜住——太碎的段落等于退回回合制。
  */
 export function timeAdvanceHint(world: WorldSetting, tier: number): [number, number] {
+  if (openLifeRules(world)) return [TIME_ADVANCE_MIN, TIME_ADVANCE_MIN];
   const maxTier = world.mechanics.realmNames.length - 1;
   const topLifespan = world.mechanics.lifespanByRealm[maxTier] ?? 100;
   const topStep = Math.min(
@@ -159,6 +161,10 @@ export function timeAdvanceHint(world: WorldSetting, tier: number): [number, num
 const TYPICAL_TIER_RATIO = 0.75;
 
 export function expectedSegments(world: WorldSetting): number {
+  const open = openLifeRules(world);
+  if (open) {
+    return Math.ceil((open.maxAge - open.startingAge) / TIME_ADVANCE_MIN);
+  }
   const maxTier = Math.max(0, world.mechanics.realmNames.length - 1);
   const typicalTier = Math.round(maxTier * TYPICAL_TIER_RATIO);
   const typicalLifespan = world.mechanics.lifespanByRealm[typicalTier] ?? 100;

@@ -1,5 +1,6 @@
 import 'client-only';
 import { generateEpilogue } from '@/lib/engine/summary';
+import { openLifeRules, rulesetVersion, visibleAttributes } from '@/lib/engine/ruleset';
 import {
   SCHEMA_VERSION,
   type CharacterState,
@@ -47,7 +48,7 @@ export function rollBaseAttributes(
 ): Record<string, number> {
   const attributes: Record<string, number> = {};
 
-  for (const definition of world.attributes) {
+  for (const definition of visibleAttributes(world)) {
     if (definition.roll) {
       const { min, max } = definition.roll;
       attributes[definition.key] = Math.floor(min + rng() * (max - min + 1));
@@ -108,11 +109,13 @@ export function buildCharacter(
   attributes?: Record<string, number>,
 ): CharacterState {
   const talent = world.talents.find((candidate) => candidate.id === talentId);
+  const initialAttributes = { ...(attributes ?? rollAttributes(world, talentId, rng)) };
+  for (const key of openLifeRules(world)?.legacyHiddenKeys ?? []) delete initialAttributes[key];
   const character: CharacterState = {
     name: name.trim() === '' ? '无名' : name.trim(),
-    age: world.mechanics.startingAge,
+    age: openLifeRules(world)?.startingAge ?? world.mechanics.startingAge,
     isAlive: true,
-    attributes: attributes ?? rollAttributes(world, talentId, rng),
+    attributes: initialAttributes,
     // 天赋名进入特质列表，好让模型在叙事里知道角色的底色；
     // 数值修正则通过 talentId 在结算时读取，不依赖自然语言。
     traits: talent ? [talent.name] : [],
@@ -139,9 +142,13 @@ export function buildSaveRecord(input: CreateGameInput): SaveRecord {
   return {
     id: input.id ?? newId(),
     schemaVersion: SCHEMA_VERSION,
+    rulesetVersion: rulesetVersion(input.world),
     revision: 0,
     world: input.world,
     worldStatus: input.world.initialWorldStatus,
+    ...(input.world.worldAttributes ? {
+      worldAttributes: Object.fromEntries(input.world.worldAttributes.map((attribute) => [attribute.key, attribute.initialValue])),
+    } : {}),
     character: buildCharacter(
       input.world,
       input.name,

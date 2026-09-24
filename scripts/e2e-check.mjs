@@ -8,6 +8,7 @@
  * 覆盖七个场景：
  *   main       配置接口 → 连通性自检 → 创角 → 连续推进 → 刷新持久化
  *              → 存档列表 → 导出 → 导入不覆盖 → 读取 IndexedDB 校验属性不变量
+ *   open-life  新开《浮生记》→ 无默认世界 → 无阶位结算与文案 → 窄屏检查
  *   ending     快速推进到寿元耗尽 → 结局面板 → 生成生平总结 → 结束后拒绝继续推进
  *   recovery   生成中途刷新页面 → 出现「上次的生成没有完成」→ 重试该决定
  *   forge      一句话生成自定义世界 → 预览与修正说明 → 用它真的玩一局 → 刷新后仍在
@@ -26,7 +27,7 @@
  *     node scripts/e2e-check.mjs [--base-url http://127.0.0.1:3000] \
  *                                [--mock-url http://127.0.0.1:8787] \
  *                                [--shots /tmp/newlife-e2e] \
- *                                [--only main|ending|recovery]
+ *                                [--only main|open-life|worlds-open|ending|recovery|forge|forge-open|truncation|controls|jev]
  */
 
 import { mkdir } from 'node:fs/promises';
@@ -137,7 +138,7 @@ async function configureJev(page) {
 /** 校验创角页列出了全部内置世界观，并且切换后属性与天赋会同步更新。 */
 async function checkWorldPicker(page) {
   await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
-  await page.getByRole('button', { name: /剑骨天成/ }).waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: /青冥仙途/ }).first().waitFor({ timeout: 15000 });
 
   const expected = ['青冥仙途', '浮生记', '灰烬王座', '星海孤舟'];
   const missing = [];
@@ -149,6 +150,9 @@ async function checkWorldPicker(page) {
     missing.length === 0,
     missing.length > 0 ? `缺少 ${missing.join('、')}` : expected.join('、'),
   );
+
+  await page.getByRole('button', { name: /青冥仙途/ }).first().click();
+  await page.getByRole('button', { name: /剑骨天成/ }).waitFor({ timeout: 10000 });
 
   // 切到现代都市题材，确认属性与天赋跟着换了一整套
   await page.getByRole('button', { name: /浮生记/ }).first().click();
@@ -170,6 +174,7 @@ async function checkWorldPicker(page) {
 
 async function createCharacter(page, name, options = {}) {
   await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
+  await page.getByRole('button', { name: /青冥仙途/ }).first().click();
   await page.locator('#name').waitFor({ state: 'visible' });
   await page.fill('#name', name);
   await page.getByRole('button', { name: /剑骨天成/ }).click();
@@ -519,6 +524,61 @@ async function scenarioMain(page, consoleErrors) {
   );
 }
 
+/** 新规则的真实浏览器流程：现代人生不再显示或结算阶位寿元。 */
+async function scenarioOpenLife(page, consoleErrors) {
+  await configureModel(page);
+  await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
+  const noDefault = (await page.locator('#name').count()) === 0;
+  record('创角：初始不预选修仙世界', noDefault);
+
+  await page.getByRole('button', { name: /浮生记/ }).first().click();
+  await page.locator('#name').waitFor({ state: 'visible' });
+  await page.fill('#name', '阿遥');
+  await page.getByRole('button', { name: /书香门第/ }).click();
+  await page.getByRole('button', { name: '开始这一生' }).click();
+  await page.waitForURL(/\/play\/?\?save=/, { timeout: 20000 });
+  await page.getByRole('button', { name: '开始这一生' }).click();
+  await waitForSegments(page, 1);
+  await waitForIdle(page);
+
+  const aside = await page.locator('aside').first().innerText();
+  const timeline = await page.locator('[data-segment-id]').first().innerText();
+  record(
+    '浮生记：状态只展示健康、事业与人生年龄',
+    aside.includes('体魄') && aside.includes('事业') && !aside.includes('寿元') && !aside.includes('阶位'),
+    aside.replace(/\s+/g, ' ').slice(0, 100),
+  );
+  record('浮生记：年表没有修行晋阶措辞', !timeline.includes('修行') && !timeline.includes('阶位'));
+
+  const saved = await page.evaluate(async () => {
+    const request = indexedDB.open('newlife');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const all = await new Promise((resolve, reject) => {
+      const get = db.transaction('saves', 'readonly').objectStore('saves').getAll();
+      get.onsuccess = () => resolve(get.result);
+      get.onerror = () => reject(get.error);
+    });
+    db.close();
+    return all.find((save) => save.character.name === '阿遥');
+  });
+  record(
+    '浮生记：落盘使用新规则，事业变化但阶层不自动晋升',
+    saved?.rulesetVersion === 2 && saved?.world.ruleset?.kind === 'open_life' &&
+      saved?.character.attributes.career > 0 && saved?.character.attributes.stratum === undefined,
+  );
+
+  await page.screenshot({ path: path.join(SHOT_DIR, '12-open-life.png'), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const mobileFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+  record('浮生记：窄屏与减少动态效果下没有横向溢出', mobileFits);
+  await page.screenshot({ path: path.join(SHOT_DIR, '13-open-life-mobile.png'), fullPage: true });
+  record('浮生记流程无控制台错误', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
+}
+
 // ────────────────────────────────────────────────────────────
 // 场景二：玩到结局并生成生平总结
 // ────────────────────────────────────────────────────────────
@@ -656,7 +716,8 @@ async function scenarioForge(page, consoleErrors) {
   await configureModel(page);
 
   await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
-  await page.getByRole('button', { name: '＋ 创造新世界' }).click();
+  await page.getByRole('button', { name: '＋ 创建世界' }).click();
+  await page.getByRole('button', { name: '阶位成长' }).click();
 
   await page.getByPlaceholder(/蒸汽与齿轮的年代/).fill('赛博朋克都市里的义体侦探');
   await page.getByRole('button', { name: '生成世界' }).click();
@@ -727,6 +788,66 @@ async function scenarioForge(page, consoleErrors) {
   );
 }
 
+async function scenarioOpenForge(page, consoleErrors) {
+  await configureModel(page);
+  await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
+  await page.getByRole('button', { name: '＋ 创建世界' }).click();
+  record('开放工坊：默认选择开放人生', await page.getByRole('button', { name: '开放人生' }).getAttribute('aria-pressed') === 'true');
+  await page.getByPlaceholder(/灾后荒原上/).fill('灾后荒原里守着一座图书馆的人');
+  await page.getByRole('button', { name: '生成世界' }).click();
+  await page.getByText('荒原书屋').first().waitFor({ timeout: 120000 });
+  const preview = await page.locator('main').innerText();
+  record('开放工坊：预览没有阶位与寿元表', preview.includes('规则检查') && !preview.includes('阶位体系') && !preview.includes('寿元上限'));
+  await page.screenshot({ path: path.join(SHOT_DIR, '14-open-forge.png'), fullPage: true });
+  await page.getByRole('button', { name: '用这个世界开始' }).click();
+  await page.fill('#name', '阿宁');
+  await page.getByRole('button', { name: '开始这一生' }).click();
+  await page.waitForURL(/\/play\/?\?save=/, { timeout: 20000 });
+  await page.getByRole('button', { name: '开始这一生' }).click();
+  await waitForSegments(page, 1);
+  const sidebar = await page.locator('aside').first().innerText();
+  record('开放工坊：自定义世界可推进且显示对应属性', sidebar.includes('守书') && !sidebar.includes('阶位'));
+  const saved = await page.evaluate(async () => {
+    const request = indexedDB.open('newlife');
+    const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    const saves = await new Promise((resolve, reject) => { const query = db.transaction('saves', 'readonly').objectStore('saves').getAll(); query.onsuccess = () => resolve(query.result); query.onerror = () => reject(query.error); });
+    db.close();
+    return saves.find((save) => save.world.name === '荒原书屋');
+  });
+  record('开放工坊：存档使用新规则且不含旧阶位', saved?.world.ruleset?.kind === 'open_life' && saved?.rulesetVersion === 2 && saved?.character.attributes.stratum === undefined);
+  record('开放工坊：无控制台错误', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
+}
+
+async function scenarioOpenWorlds(page, consoleErrors) {
+  await configureModel(page);
+  for (const spec of [
+    { id: 'ashen-throne', name: '灰烬王座', visible: '公会评级', hidden: '寿元' },
+    { id: 'star-ark', name: '星海孤舟', visible: '殖民地阶段', hidden: '寿元' },
+  ]) {
+    await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
+    await page.getByRole('button', { name: new RegExp(spec.name) }).first().click();
+    await page.fill('#name', spec.id === 'star-ark' ? '林澈' : '阿灰');
+    await page.getByRole('button', { name: '开始这一生' }).click();
+    await page.waitForURL(/\/play\/?\?save=/, { timeout: 20000 });
+    await page.getByRole('button', { name: '开始这一生' }).click();
+    await waitForSegments(page, 1);
+    const aside = await page.locator('aside').first().innerText();
+    record(`${spec.name}：新局使用自己的状态分区`, aside.includes(spec.visible) && !aside.includes(spec.hidden), aside.replace(/\s+/g, ' ').slice(0, 95));
+    const saved = await page.evaluate(async (worldId) => {
+      const request = indexedDB.open('newlife');
+      const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      const saves = await new Promise((resolve, reject) => { const query = db.transaction('saves', 'readonly').objectStore('saves').getAll(); query.onsuccess = () => resolve(query.result); query.onerror = () => reject(query.error); });
+      db.close();
+      return saves.find((save) => save.world.id === worldId);
+    }, spec.id);
+    const consistent = spec.id === 'star-ark'
+      ? saved?.worldAttributes?.progress > 0 && saved?.character.attributes.stage === undefined
+      : saved?.character.attributes.rank === 1;
+    record(`${spec.name}：结算结果写入正确对象`, Boolean(consistent), JSON.stringify({ world: saved?.worldAttributes, actorStage: saved?.character.attributes.stage, rank: saved?.character.attributes.rank }));
+  }
+  record('新增世界流程无控制台错误', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
+}
+
 // ────────────────────────────────────────────────────────────
 // 场景五：响应被输出上限截断时的表现
 // ────────────────────────────────────────────────────────────
@@ -746,6 +867,7 @@ async function scenarioTruncation(page, consoleErrors) {
 
   // 真正的段落生成应当给出可操作的提示，而不是笼统的「无法解析」
   await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
+  await page.getByRole('button', { name: /青冥仙途/ }).first().click();
   await page.locator('#name').waitFor({ state: 'visible' });
   await page.fill('#name', '截断测试');
   await page.getByRole('button', { name: '开始这一生' }).click();
@@ -989,9 +1111,12 @@ async function main() {
 
   try {
     if (ONLY === '' || ONLY === 'main') await scenarioMain(page, consoleErrors);
+    if (ONLY === '' || ONLY === 'open-life') await scenarioOpenLife(page, consoleErrors);
+    if (ONLY === '' || ONLY === 'worlds-open') await scenarioOpenWorlds(page, consoleErrors);
     if (ONLY === '' || ONLY === 'ending') await scenarioEnding(page, consoleErrors);
     if (ONLY === '' || ONLY === 'recovery') await scenarioRecovery(page, consoleErrors);
     if (ONLY === '' || ONLY === 'forge') await scenarioForge(page, consoleErrors);
+    if (ONLY === '' || ONLY === 'forge-open') await scenarioOpenForge(page, consoleErrors);
     if (ONLY === '' || ONLY === 'truncation') await scenarioTruncation(page, consoleErrors);
     if (ONLY === '' || ONLY === 'controls') await scenarioControls(page, consoleErrors);
     if (ONLY === '' || ONLY === 'jev') await scenarioJev(page, consoleErrors);

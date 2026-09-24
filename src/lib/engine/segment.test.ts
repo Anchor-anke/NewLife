@@ -170,6 +170,26 @@ describe('runSegment', () => {
     expect(result.resolution.warnings).toEqual(result.warnings);
   });
 
+  it('模型擅自写入境界增量时，最终境界只由一次程序突破决定', async () => {
+    const adapter = makeFakeAdapter([
+      segmentResponse({
+        entries: [{ age: 17, kind: 'cultivation', text: '你尝试冲击瓶颈。' }],
+        attributeDeltas: { realm: 1 },
+      }),
+    ]);
+    const character = makeCharacter();
+    character.attributes['cultivation'] = 95;
+    const result = await runSegment(baseInput(adapter, {
+      character,
+      rng: () => 0,
+    }));
+
+    expect(result.resolution.character.attributes['realm']).toBe(1);
+    expect(result.proposal.attributeDeltas['realm']).toBeUndefined();
+    expect(result.proposal.entries.some((entry) => entry.text.includes('炼气'))).toBe(true);
+    expect(result.warnings.join('\n')).toContain('境界由系统判定');
+  });
+
   it('提示词里带上了角色硬状态与寿元余量', async () => {
     const adapter = makeFakeAdapter([segmentResponse()]);
     await runSegment(baseInput(adapter));
@@ -180,6 +200,8 @@ describe('runSegment', () => {
     expect(userMessage).toContain('寿元上限 70 岁');
     // 世界自行运转的段落要说清「没有玩家介入」，否则模型会替玩家做重大决定
     expect(userMessage).toContain('没有介入');
+    expect(userMessage).toContain('不要预判系统结算结果');
+    expect(userMessage).toContain('不要在 text、detail、decision 或 worldStatusUpdate 中预判玩家突破成功或失败');
   });
 
   it('提示词里带上了条目的写法要求，并给出反面例子', async () => {

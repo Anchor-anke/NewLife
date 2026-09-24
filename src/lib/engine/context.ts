@@ -10,6 +10,7 @@ import {
 import { TIME_UNIT_LABELS, attributeLabel, tierName } from './labels';
 import { timeAdvanceHint } from './pacing';
 import type { StopPlan } from './decision';
+import { openLifeRules, visibleAttributes } from './ruleset';
 
 /**
  * 上下文组装。
@@ -28,10 +29,24 @@ import type { StopPlan } from './decision';
 
 /** 提示词里出现的属性展示顺序：主属性在前。 */
 function orderedAttributes(world: WorldSetting) {
-  return [...world.attributes].sort((a, b) => Number(b.primary ?? false) - Number(a.primary ?? false));
+  return [...visibleAttributes(world)].sort((a, b) => Number(b.primary ?? false) - Number(a.primary ?? false));
 }
 
 function formatCharacterState(world: WorldSetting, character: CharacterState): string {
+  const open = openLifeRules(world);
+  if (open) {
+    const lines = [`- 姓名：${character.name}`, `- 年龄：${character.age} 岁`];
+    for (const definition of orderedAttributes(world)) {
+      lines.push(`- ${definition.label}：${character.attributes[definition.key] ?? definition.initialValue}${definition.unit ?? ''}`);
+    }
+    if (character.traits.length > 0) lines.push(`- 特质：${character.traits.join('、')}`);
+    if (character.inventory.length > 0) lines.push(`- 持有：${character.inventory.join('、')}`);
+    const relationships = Object.entries(character.relationships);
+    if (relationships.length > 0) {
+      lines.push(`- 关系：${relationships.map(([name, relation]) => `${name}（${relation}）`).join('、')}`);
+    }
+    return lines.join('\n');
+  }
   const { realmKey, cultivationKey, cultivationMax, lifespanByRealm } = world.mechanics;
   const realm = character.attributes[realmKey] ?? 0;
   const lifespan = lifespanByRealm[realm] ?? Number.POSITIVE_INFINITY;
@@ -93,10 +108,19 @@ function formatRecentSegments(world: WorldSetting, segments: readonly LifeSegmen
     .map((record) => {
       const from = record.characterBefore.age;
       const to = record.resolvedCharacter.age;
+      if (openLifeRules(world)) {
+        const action = record.playerAction === undefined ? '世界自行运转' : `玩家的决定：${record.playerAction}`;
+        const entries = record.segment.entries.map((entry) => `  ${formatEntry(entry)}`).join('\n');
+        return `【第 ${record.segmentId} 段】${from} → ${to} 岁（历时 ${record.segment.timeAdvance} ${unit}；${action}）\n${entries}`;
+      }
+      const realmKey = world.mechanics.realmKey;
+      const fromRealm = record.characterBefore.attributes[realmKey] ?? 0;
+      const toRealm = record.resolvedCharacter.attributes[realmKey] ?? 0;
+      const settledTier = `${attributeLabel(world, realmKey)}：${tierName(world, fromRealm)} → ${tierName(world, toRealm)}`;
       const header =
         record.playerAction === undefined
-          ? `【第 ${record.segmentId} 段】${from} → ${to} 岁（历时 ${record.segment.timeAdvance} ${unit}，世界自行运转）`
-          : `【第 ${record.segmentId} 段】${from} → ${to} 岁（历时 ${record.segment.timeAdvance} ${unit}）\n玩家的决定：${record.playerAction}`;
+          ? `【第 ${record.segmentId} 段】${from} → ${to} 岁（历时 ${record.segment.timeAdvance} ${unit}，世界自行运转；系统结算 ${settledTier}）`
+          : `【第 ${record.segmentId} 段】${from} → ${to} 岁（历时 ${record.segment.timeAdvance} ${unit}；系统结算 ${settledTier}）\n玩家的决定：${record.playerAction}`;
 
       const entries = record.segment.entries.map((entry) => `  ${formatEntry(entry)}`).join('\n');
       return `${header}\n${entries}`;
@@ -104,8 +128,46 @@ function formatRecentSegments(world: WorldSetting, segments: readonly LifeSegmen
     .join('\n\n');
 }
 
+function outputContractOpen(world: WorldSetting, character: CharacterState): string {
+  const open = openLifeRules(world);
+  if (!open) throw new Error('只有开放人生世界可使用此输出契约');
+  const [minYears, maxYears] = timeAdvanceHint(world, 0);
+  const writable = visibleAttributes(world).map((attribute) => `"${attribute.key}"（${attribute.label}）`).join('、');
+  const careerLabel = attributeLabel(world, open.careerKey);
+  const healthLabel = attributeLabel(world, open.healthKey);
+  const worldWritable = (world.worldAttributes ?? [])
+    .filter((attribute) => attribute.key !== open.worldProgress?.stageKey)
+    .map((attribute) => `"${attribute.key}"（${attribute.label}）`).join('、');
+  const worldField = worldWritable ? `\n  "worldDeltas": { "${open.worldProgress?.progressKey ?? 'progress'}": 0 },` : '';
+  const worldInstruction = worldWritable
+    ? `\n- 世界变化只用这些键：${worldWritable}。殖民地阶段由程序依据建设进度判定，绝不能直接写入 stage；世界进展与人物健康分开。`
+    : '';
+  const rankInstruction = open.earnedRank
+    ? `\n- 「${attributeLabel(world, open.earnedRank.key)}」最多变化一级，且本段必须有完成委托或正式评定的 milestone 条目作为依据。只描写依据，不预告程序最终评定结果。`
+    : '';
+  return `严格只输出一个 JSON 对象，不要输出 Markdown 或解释。结构如下：
+{
+  "entries": [{ "age": ${character.age + 1}, "kind": "event", "text": "具体发生的一件事", "detail": "可选，仅重大事件展开" }],
+  "timeAdvance": ${minYears},
+  "attributeDeltas": { "${open.careerKey}": 0 },${worldField}
+  "worldStatusUpdate": "可选。世界局势确有变化时给出",
+  "decision": { "prompt": "发生了什么", "stakes": "这个选择的代价", "options": ["行动一", "行动二"] },
+  "endingProposal": { "type": "completion", "reason": "可选。人生确有收束时给出" }
+}
+字段规则：
+- 给出 4~12 条按年龄先后排列的具体事件，覆盖 ${minYears}~${maxYears} 年。年龄只能在 ${character.age}~${character.age + maxYears} 岁之间，条目正文一般为 15~40 字。
+- kind 只用 event、relationship、fortune、setback、milestone；不要使用 cultivation。
+- 属性变化只用这些键：${writable}。${careerLabel}、${healthLabel}、资源与关系各自变化；不要写自动阶位突破或等级寿命。
+- 属性变化是整段的相对增量，单项一般不超过 ±10。${healthLabel}和${careerLabel}不能仅凭年龄自动增加；年龄衰退由程序单独结算。
+- 人物的职业或任务进度不是世界阶段，不能用人物属性代替世界变化。${worldInstruction}${rankInstruction}
+- 决策只在不可轻易反悔的利益、关系、健康或人生目标冲突时提出，给 2~4 个不同选项。日常小事不要停车。
+- 不要在文字中预告程序尚未确认的死亡、目标完成或最终状态。结束提议由程序核准。
+- worldStatusUpdate、traitOps、inventoryOps、relationshipOps 没有变化时可省略。`;
+}
+
 /** 描述输出的 JSON 结构。字段说明要具体，否则模型很容易漏字段。 */
 function outputContract(world: WorldSetting, realm: number, character: CharacterState): string {
+  if (openLifeRules(world)) return outputContractOpen(world, character);
   const { cultivationKey, realmKey } = world.mechanics;
   const writable = world.attributes
     .filter((attribute) => attribute.key !== cultivationKey && attribute.key !== realmKey)
@@ -124,7 +186,7 @@ function outputContract(world: WorldSetting, realm: number, character: Character
   "entries": [
     { "age": ${startAge + 1}, "kind": "relationship", "text": "周砚托人捎来一封信，说家里添了个儿子，取名念山" },
     { "age": ${startAge + 2}, "kind": "setback", "text": "你试着再往前走一步，差了一线，此后半年都没能静下心" },
-    { "age": ${startAge + 3}, "kind": "milestone", "text": "你终于跨过了那道坎", "detail": "100~200 字的完整叙事，只有重要条目才给" }
+    { "age": ${startAge + 3}, "kind": "milestone", "text": "你试着迈过困住自己多年的门槛", "detail": "100~200 字的完整叙事，只有重要条目才给" }
   ],
   "timeAdvance": 本段覆盖的${unit}数，整数，${minYears}~${maxYears} 之间,
   "attributeDeltas": { 属性键: 变化量 },
@@ -151,7 +213,8 @@ function outputContract(world: WorldSetting, realm: number, character: Character
   条目不需要展开成完整叙事，但每一行都要有具体的质地：人名、物件、地点、一个动作。
 - 连续 3 条以上同 kind 的条目会被判为流水账并退回重写，请把不同类型的事情交替铺开。
 - "age" 必须落在 ${startAge}~${endAge} 岁之间，且随时间递增。
-- "detail" 只在真正重要时才给：阶位突破、重大际遇、亲密关系的变化、濒死、重要的失去。其余条目一律不给 detail。
+- "detail" 只在真正重要时才给：尝试突破、重大际遇、亲密关系的变化、濒死、重要的失去。其余条目一律不给 detail。
+- 玩家当前的${realmLabel}与${cultivationLabel}由系统结算。不要在 text、detail、decision 或 worldStatusUpdate 中预判玩家突破成功或失败，也不要宣称玩家已升至某个新阶位；可以描写尝试、瓶颈、征兆和代价。实际结果由系统结算后写入年表。
 - "decision" 只在剧情走到**会改变长期走向的岔路**时才给（拜师、迁徙、结仇、托付、放弃）。日常的取舍不算岔路，不要给。给的时候必须带 2~4 个互不相同的选项。
 - "attributeDeltas" 只允许使用这些键：${writable}。不要写入 "${cultivationKey}"（${cultivationLabel}）或 "${realmKey}"（${realmLabel}）——它们由系统结算。
 - 属性变化量是**相对增量**，不是新值。变化幅度要克制，单段一般不超过 ±10。
@@ -167,6 +230,8 @@ function mustStopInstruction(stopPlan: StopPlan): string {
   const reason =
     stopPlan.cause === 'near-end'
       ? '角色已经进入当前阶位的寿元末段，该给他一次收束这一生的机会'
+      : stopPlan.cause === 'life-turn'
+        ? '人物已接近人生末段或健康危急，应给玩家一次重要选择的机会'
       : '已经很久没有让玩家介入了，参与感会消失';
 
   return `\n\n## 本段的硬性要求\n${reason}。因此**本段结束时必须给出一个 decision**，而且必须是一个真正会改变长期走向的岔路，不要用「继续修炼还是下山」这类日常取舍充数。`;
@@ -186,6 +251,29 @@ export function buildSystemPrompt(world: WorldSetting): string {
     })
     .join('\n');
 
+  if (openLifeRules(world)) {
+    const worldAttributes = (world.worldAttributes ?? [])
+      .map((attribute) => `- ${attribute.label}（${attribute.key}）：世界状态，不属于人物`).join('\n');
+    return `你是文字人生模拟器《${world.name}》的叙事引擎。
+
+${world.description}
+
+## 固定世界法则
+${rules}
+
+## 属性说明
+${attributeDocs}
+${worldAttributes ? `\n## 世界属性\n${worldAttributes}\n` : ''}
+
+## 你的职责
+1. 依据既有事实和这个世界的法则推进人生，写出一段岁月中的具体事件与人物关系。
+2. 玩家行动只是尝试，结果须符合现有资源、健康、关系和世界法则。
+3. 人物的目标、资源、健康和关系各自演变。没有自动阶位突破，也不因地位提升而延长寿命。
+4. 时间有限，重要决定有代价；不要把“成功”简化为收入或社会阶层上升。
+5. 条目写具体的人、地点、物件与动作；重要事件才给完整 detail。
+6. 只使用列出的属性键，按 JSON 契约输出。`;
+  }
+
   return `你是文字人生模拟器《${world.name}》的叙事引擎。
 
 ${world.description}
@@ -204,10 +292,10 @@ ${attributeDocs}
 ## 你的职责
 1. 依据世界法则、既有事实与角色能力，推进时间，产出这一段的条目流。
 2. 玩家的决定是**尝试**，不代表必然成功，也不能凌驾于世界法则之上。
-3. 条目必须与属性变化一致：写下了什么，就给出对应的数值变化。
+3. 条目必须与属性变化一致：写下了什么，就给出对应的数值变化。阶位与进度除外，它们由系统结算，不能预写成功、失败或最终阶位。
 4. 时间是稀缺资源。角色寿元有限，请让岁月的流逝有分量，而不是轻描淡写。
 5. 绝大多数年份是平淡的。**只有真正重要的事才配展开成完整叙事**——
-   阶位突破、重大际遇、亲密关系的变化、濒死、重要的失去。其余写成条目。
+   尝试突破、重大际遇、亲密关系的变化、濒死、重要的失去。其余写成条目。
 6. 但**简短不等于压缩**。条目是一行，不是一行摘要：写人、写动作、写具体的物件与地点，
    而不是把一件事提炼成主谓宾。同样占一行，「他把剑留在山门口」远胜过「与师父决裂」。
 7. 只使用上面列出的属性键，不要发明新属性。
@@ -229,8 +317,18 @@ export function buildSegmentUserMessage(context: SegmentContext): string {
   sections.push(
     `## 当前世界局势\n${context.worldStatus.trim() === '' ? '（尚未展开，可在本段确立。）' : context.worldStatus.trim()}`,
   );
+  if (world.worldAttributes && context.worldAttributes) {
+    const stage = openLifeRules(world)?.worldProgress;
+    sections.push(`## 当前世界状态\n${world.worldAttributes.map((attribute) => {
+      const value = context.worldAttributes?.[attribute.key] ?? attribute.initialValue;
+      return `- ${attribute.label}：${attribute.key === stage?.stageKey ? `${stage.stageNames[value] ?? value}（${value}）` : value}`;
+    }).join('\n')}`);
+  }
 
   sections.push(`## 角色当前状态\n${formatCharacterState(world, character)}`);
+  sections.push(openLifeRules(world)
+    ? '## 事实优先级\n人物年龄、属性和关系只以「角色当前状态」为准。旧摘要若有冲突，以当前状态为准；不得预判程序结局。'
+    : '## 事实优先级\n角色当前阶位与进度只以「角色当前状态」为准。长期摘要和旧条目若有不同说法，不要沿用；本段也不要预判系统结算结果。');
 
   sections.push(
     context.playerAction === undefined
@@ -286,6 +384,10 @@ export function buildSummaryUserMessage(input: SummaryInput): string {
       return `${head}\n${action}${entries}`;
     })
     .join('\n\n');
+  const latestWorld = input.segments.at(-1)?.resolvedWorldAttributes;
+  const worldState = latestWorld && input.world.worldAttributes
+    ? `\n\n## 当前世界进展\n${input.world.worldAttributes.map((attribute) => `${attribute.label}：${latestWorld[attribute.key] ?? attribute.initialValue}`).join('、')}`
+    : '';
 
   return `## 已有摘要
 ${previous === '' ? '（暂无，这是第一次生成摘要。）' : previous}
@@ -294,7 +396,7 @@ ${previous === '' ? '（暂无，这是第一次生成摘要。）' : previous}
 ${segments}
 
 ## 角色当前状态
-${formatCharacterState(input.world, input.character)}
+${formatCharacterState(input.world, input.character)}${worldState}
 
 请输出合并后的新摘要。`;
 }
@@ -321,8 +423,20 @@ export function buildEpilogueUserMessage(input: EpilogueInput): string {
     .map((entry) => `${entry.age} 岁 · ${entry.text}${entry.detail ? `——${entry.detail}` : ''}`)
     .join('\n');
 
+  const finalState = openLifeRules(world)
+    ? `- 最终${attributeLabel(world, world.ruleset!.careerKey)}：${input.character.attributes[world.ruleset!.careerKey] ?? 0}`
+    : `- 终局阶位：${tierName(world, realm)}`;
+  const latestWorld = input.segments.at(-1)?.resolvedWorldAttributes;
+  const worldProgress = world.ruleset?.worldProgress;
+  const finalWorldState = latestWorld && world.worldAttributes
+    ? `\n- 世界进展：${world.worldAttributes.map((attribute) => {
+        const value = latestWorld[attribute.key] ?? attribute.initialValue;
+        return `${attribute.label} ${attribute.key === worldProgress?.stageKey ? worldProgress.stageNames[value] ?? value : value}`;
+      }).join('、')}`
+    : '';
+
   return `## 结局
-类型：${ending.type === 'death' ? '死亡' : '圆满'}
+类型：${ending.type === 'death' ? '死亡' : openLifeRules(world) ? '人生收束' : '圆满'}
 原因：${ending.reason}
 ${ending.narrative}
 
@@ -330,9 +444,9 @@ ${ending.narrative}
 ${formatCharacterState(world, input.character)}
 
 ## 一生轨迹
-- 终局阶位：${tierName(world, realm)}
+${finalState}${finalWorldState}
 - 总段落数：${input.stats.totalSegments}
-- 享年：${input.character.age} 岁
+- ${ending.type === 'death' ? '享年' : '收束时年龄'}：${input.character.age} 岁
 
 ## 历史摘要
 ${input.historySummary.trim() === '' ? '（无摘要。）' : input.historySummary.trim()}

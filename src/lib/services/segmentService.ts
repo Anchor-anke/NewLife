@@ -133,6 +133,7 @@ export async function submitSegment(input: SubmitSegmentInput): Promise<SubmitSe
         world: save.world,
         character: save.character,
         worldStatus: save.worldStatus,
+        ...(save.worldAttributes ? { worldAttributes: save.worldAttributes } : {}),
         historySummary: save.historySummary,
         recentSegments: window,
         ...(input.playerAction !== undefined ? { playerAction: input.playerAction } : {}),
@@ -158,8 +159,10 @@ export async function submitSegment(input: SubmitSegmentInput): Promise<SubmitSe
       ...(input.playerAction !== undefined ? { playerAction: input.playerAction } : {}),
       segment: output.proposal,
       characterBefore: save.character,
+      ...(save.worldAttributes ? { worldAttributesBefore: save.worldAttributes } : {}),
       resolvedCharacter: output.resolution.character,
       resolvedWorldStatus: output.resolution.worldStatus,
+      ...(output.resolution.worldAttributes ? { resolvedWorldAttributes: output.resolution.worldAttributes } : {}),
       ...(ending ? { ending } : {}),
       validationWarnings: output.warnings,
       modelMeta: output.modelMeta,
@@ -175,6 +178,7 @@ export async function submitSegment(input: SubmitSegmentInput): Promise<SubmitSe
       next: {
         character: output.resolution.character,
         worldStatus: output.resolution.worldStatus,
+        ...(output.resolution.worldAttributes ? { worldAttributes: output.resolution.worldAttributes } : {}),
         status: ending ? 'ended' : 'active',
         stats: {
           totalSegments: segmentId,

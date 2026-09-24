@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { SetupNotice } from '@/components/SetupNotice';
 import { Badge, Panel } from '@/components/ui';
 import { WORLDS } from '@/lib/worlds';
+import { openLifeRules, visibleAttributes } from '@/lib/engine/ruleset';
 
 const STEPS = [
   {
@@ -10,11 +11,11 @@ const STEPS = [
   },
   {
     title: '创建角色',
-    body: '掷出初始资质，挑一个天赋。天赋会以数值修正的方式真实影响你的一生，而不只是文案。',
+    body: '设定人物的起点与成长背景。不同世界会关注不同的能力、关系和目标。',
   },
   {
     title: '推演一生',
-    body: '模型推进一段岁月并给出条目，程序负责校验、结算与存档，只在真正重要的岔路口才停下来问你。寿元耗尽之时，一切落幕。',
+    body: '模型推进一段岁月并给出条目，程序按当前世界的规则结算。重要岔路由你决定，结局来自已经发生的事。',
   },
 ];
 
@@ -74,11 +75,9 @@ export default function HomePage() {
                   时间单位：
                   {world.timeUnit === 'year' ? '年' : world.timeUnit === 'month' ? '月' : '日'}
                 </Badge>
-                <Badge>{world.attributes.length} 项属性</Badge>
+                <Badge>{visibleAttributes(world).length} 项属性</Badge>
                 <Badge>{world.talents.length} 种天赋</Badge>
-                <Badge tone="gold">
-                  {world.mechanics.realmNames[world.mechanics.realmNames.length - 1]}为终局
-                </Badge>
+                <Badge tone="gold">{openLifeRules(world) ? '开放人生' : '阶位成长'}</Badge>
               </div>
             </Panel>
           ))}

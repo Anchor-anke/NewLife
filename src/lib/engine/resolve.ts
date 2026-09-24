@@ -16,9 +16,11 @@ import type {
   TalentModifiers,
   WorldSetting,
 } from './types';
-import { attributeLabel, fillTemplate } from './labels';
+import { attributeLabel, fillTemplate, tierName } from './labels';
 import { resolveDecision, type StopPlan } from './decision';
 import { decisionIntervalFor } from './pacing';
+import { openLifeRules } from './ruleset';
+import { resolveOpenLife } from './open-life';
 
 /**
  * 规则结算层。
@@ -53,6 +55,7 @@ export interface ResolveSegmentInput {
   world: WorldSetting;
   character: CharacterState;
   worldStatus: string;
+  worldAttributes?: Record<string, number>;
   /** 已规整的段落提议 */
   proposal: SegmentProposal;
   /** 本段的序号，从 1 开始 */
@@ -158,6 +161,7 @@ function applyAttributeDeltas(
   const changes: AttributeChange[] = [];
 
   for (const [key, delta] of Object.entries(deltas)) {
+    if (key === world.mechanics.realmKey || key === world.mechanics.cultivationKey) continue;
     const definition = world.attributes.find((attribute) => attribute.key === key);
     if (!definition) continue;
 
@@ -215,6 +219,7 @@ function clampAllAttributes(world: WorldSetting, attributes: Record<string, numb
 }
 
 export function resolveSegment(input: ResolveSegmentInput): ResolveSegmentResult {
+  if (openLifeRules(input.world)) return resolveOpenLife(input);
   const { world, proposal, segmentId } = input;
   const rng = input.rng ?? Math.random;
   const warnings: string[] = [];
@@ -393,9 +398,57 @@ export function resolveSegment(input: ResolveSegmentInput): ResolveSegmentResult
     return runBreakthroughs() ?? settleDeath();
   }
 
+  function snapshotAttributes(): Record<string, number> {
+    return {
+      ...attributes,
+      [realmKey]: realm,
+      [cultivationKey]: clampAttribute(world, cultivationKey, Math.max(0, cultivation)),
+    };
+  }
+
+  /** 把系统判定写回年表，避免剧情只能猜测阶位，而状态栏显示另一套结果。 */
+  function appendBreakthroughOutcome(
+    fromIndex: number,
+    settledAttributes: Record<string, number>,
+  ): void {
+    const attempts = breakthroughs.slice(fromIndex);
+    if (attempts.length === 0) return;
+
+    const first = attempts[0];
+    const last = attempts[attempts.length - 1];
+    if (!first || !last) return;
+
+    const label = attributeLabel(world, realmKey);
+    if (last.toRealm > first.fromRealm) {
+      keptEntries.push({
+        age: last.age,
+        kind: 'milestone',
+        text: `你的${label}提升至「${tierName(world, last.toRealm)}」。`,
+        settledAttributes,
+      });
+    } else if (attempts.some((attempt) => !attempt.success)) {
+      keptEntries.push({
+        age: last.age,
+        kind: 'setback',
+        text: `你尝试提升${label}，未能成功，仍为「${tierName(world, last.toRealm)}」。`,
+        settledAttributes,
+      });
+    }
+  }
+
   for (const entry of proposal.entries) {
+    const beforeAttributes = snapshotAttributes();
+    const beforeBreakthroughs = breakthroughs.length;
     const settled = advanceTo(entry.age);
-    keptEntries.push(entry);
+    const afterAttributes = snapshotAttributes();
+    keptEntries.push({
+      ...entry,
+      // 先讲尝试，再显示系统结果；状态栏到结果条目出现时才切换阶位。
+      settledAttributes: breakthroughs.length > beforeBreakthroughs
+        ? beforeAttributes
+        : afterAttributes,
+    });
+    appendBreakthroughOutcome(beforeBreakthroughs, afterAttributes);
     if (settled) {
       ending = settled.ending;
       endingNote = settled.note;
@@ -405,7 +458,9 @@ export function resolveSegment(input: ResolveSegmentInput): ResolveSegmentResult
   }
 
   if (!ending) {
+    const beforeBreakthroughs = breakthroughs.length;
     const settled = advanceTo(segmentEnd);
+    appendBreakthroughOutcome(beforeBreakthroughs, snapshotAttributes());
     if (settled) {
       ending = settled.ending;
       endingNote = settled.note;

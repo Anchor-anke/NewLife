@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { WORLDS } from '@/lib/worlds';
 import { VERIFY_SCENARIOS, checkInvariants, simulateWorld } from './simulate';
 import type { EndingCause } from './types';
+import { openLifeRules } from './ruleset';
 
 /**
  * 数值手感模拟。
@@ -21,6 +22,8 @@ const LIVES_PER_WORLD = 200;
 
 const CAUSE_LABELS: Record<EndingCause | 'unfinished', string> = {
   lifespan: '寿元耗尽',
+  health: '健康耗尽',
+  'old-age': '自然离世',
   collapse: '意志崩溃',
   ascension: '登顶（圆满）',
   'turn-limit': '段落数上限',
@@ -46,8 +49,8 @@ const CAUSE_LABELS: Record<EndingCause | 'unfinished', string> = {
 const SCENARIOS = Object.values(VERIFY_SCENARIOS);
 const BASELINE = VERIFY_SCENARIOS.eagerPlain;
 
-describe('数值手感模拟', () => {
-  it.each(WORLDS.map((world) => [world.name, world] as const))(
+describe('阶位寿元规则的数值手感模拟', () => {
+  it.each(WORLDS.filter((world) => !openLifeRules(world)).map((world) => [world.name, world] as const))(
     '「%s」的人生分布符合设计预期',
     (_name, world) => {
       const maxTier = world.mechanics.realmNames.length - 1;

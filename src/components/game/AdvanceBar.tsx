@@ -28,6 +28,7 @@ export function AdvanceBar({
   hasSegments,
   busy,
   stage,
+  presenting,
   isEnded,
   running,
   remaining,
@@ -37,6 +38,7 @@ export function AdvanceBar({
   hasSegments: boolean;
   busy: boolean;
   stage: SegmentStage | null;
+  presenting: boolean;
   isEnded: boolean;
   /** 是否正在连续推进 */
   running: boolean;
@@ -64,10 +66,10 @@ export function AdvanceBar({
           : '第一段会交代你的出身与当下的处境。'
       }
     >
-      {stage && (
+      {(stage || presenting) && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-jade-500/30 bg-jade-900/25 px-3 py-2 text-sm text-jade-300">
           <Spinner />
-          {STAGE_LABELS[stage]}
+          {stage ? STAGE_LABELS[stage] : '正在呈现这一段…'}
           {running && remaining > 0 && (
             <span className="ml-auto text-xs text-ink-400">连续推进还剩 {remaining} 段</span>
           )}

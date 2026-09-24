@@ -3,6 +3,7 @@
 import { Badge, Panel, StatBar } from '@/components/ui';
 import { attributeLabel } from '@/lib/engine/labels';
 import type { CharacterState, WorldSetting } from '@/lib/engine/types';
+import { openLifeRules, visibleAttributes } from '@/lib/engine/ruleset';
 
 /**
  * 角色状态面板。
@@ -14,11 +15,14 @@ export function StatusPanel({
   world,
   character,
   worldStatus,
+  worldAttributes,
 }: {
   world: WorldSetting;
   character: CharacterState;
   worldStatus: string;
+  worldAttributes?: Record<string, number>;
 }) {
+  const open = openLifeRules(world);
   const { realmKey, cultivationKey, cultivationMax, realmNames, lifespanByRealm } =
     world.mechanics;
 
@@ -27,16 +31,18 @@ export function StatusPanel({
   const lifespan = lifespanByRealm[realm] ?? Number.POSITIVE_INFINITY;
   const remaining = Number.isFinite(lifespan) ? Math.max(0, lifespan - character.age) : undefined;
 
-  const primary = world.attributes.filter(
+  const displayAttributes = visibleAttributes(world);
+  const reserved = open
+    ? [open.healthKey, open.careerKey]
+    : [realmKey, cultivationKey];
+  const primary = displayAttributes.filter(
     (definition) =>
-      definition.key !== realmKey &&
-      definition.key !== cultivationKey &&
+      !reserved.includes(definition.key) &&
       definition.primary === true,
   );
-  const secondary = world.attributes.filter(
+  const secondary = displayAttributes.filter(
     (definition) =>
-      definition.key !== realmKey &&
-      definition.key !== cultivationKey &&
+      !reserved.includes(definition.key) &&
       definition.primary !== true,
   );
 
@@ -50,10 +56,25 @@ export function StatusPanel({
             <p className="font-narrative text-lg tracking-wide text-ink-100">{character.name}</p>
             <p className="text-xs text-ink-500">{world.name}</p>
           </div>
-          <Badge tone="gold">{realmLabel}</Badge>
+          <Badge tone="gold">{open ? `${character.age} 岁` : realmLabel}</Badge>
         </div>
 
-        <div className="space-y-4">
+        {open ? (
+          <div className="space-y-4">
+            <StatBar
+              label={attributeLabel(world, open.healthKey)}
+              value={character.attributes[open.healthKey] ?? 0}
+              max={100}
+              tone="jade"
+            />
+            <StatBar
+              label={attributeLabel(world, open.careerKey)}
+              value={character.attributes[open.careerKey] ?? 0}
+              max={100}
+              tone="plain"
+            />
+          </div>
+        ) : <div className="space-y-4">
           <StatBar
             label="寿元"
             value={character.age}
@@ -73,7 +94,7 @@ export function StatusPanel({
             tone="jade"
             hint="满则可冲击下一阶位"
           />
-        </div>
+        </div>}
       </Panel>
 
       {primary.length > 0 && (
@@ -87,6 +108,9 @@ export function StatusPanel({
                 min={definition.min}
                 max={definition.max}
                 tone="jade"
+                {...(definition.key === open?.earnedRank?.key
+                  ? { hint: world.mechanics.realmNames[character.attributes[definition.key] ?? 0] ?? '' }
+                  : {})}
               />
             ))}
           </div>
@@ -108,6 +132,23 @@ export function StatusPanel({
                   tone="plain"
                 />
               );
+            })}
+          </div>
+        </Panel>
+      )}
+
+      {world.worldAttributes && world.worldAttributes.length > 0 && worldAttributes && (
+        <Panel title="世界进展">
+          <div className="space-y-3">
+            {world.worldAttributes.map((definition) => {
+              const value = worldAttributes[definition.key] ?? definition.initialValue;
+              const progression = open?.worldProgress;
+              if (definition.key === progression?.stageKey) {
+                return <p key={definition.key} className="text-sm text-ink-300">{definition.label}：{progression.stageNames[value] ?? `第 ${value} 阶段`}</p>;
+              }
+              return <StatBar key={definition.key} label={definition.label} value={value}
+                {...(definition.max !== undefined ? { min: definition.min ?? 0, max: definition.max } : {})}
+                suffix={definition.unit ?? ''} tone="jade" />;
             })}
           </div>
         </Panel>

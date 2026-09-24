@@ -22,6 +22,26 @@ export const starArk: WorldSetting = {
   description:
     '殖民船「长夜号」在跃迁中偏离了航线，迫降在一颗没有名字的行星上。母星已经联系不上，你这一代人要决定：是活下去，还是活得像个文明。',
   timeUnit: 'year',
+  ruleset: {
+    kind: 'open_life', version: 2,
+    healthKey: 'health', spiritKey: 'resolve', careerKey: 'work', luckKey: 'fortune',
+    lethalEventKeywords: ['失压', '辐射', '致命', '事故', '感染', '濒死', '缺氧', '爆炸'],
+    startingAge: 20, legacyHiddenKeys: ['stage', 'progress', 'tech', 'resources'],
+    agingStartAge: 50, annualHealthLoss: 1, maxAge: 110, completionMinAge: 55,
+    maxDeltaPerSegment: 25, segmentSoftLimit: 85,
+    worldProgress: {
+      stageKey: 'stage', progressKey: 'progress', threshold: 100,
+      stageNames: ['幸存', '立足', '自足', '繁荣', '星港', '星区', '星系', '文明'],
+    },
+    naturalDeath: { reason: '生命走到尽头', narrative: '殖民地还会继续，而你在 {age} 岁走完了自己的一生。' },
+    healthDeath: { reason: '健康耗尽', narrative: '医疗舱无法挽回伤病。你在 {age} 岁离开了殖民地。' },
+  },
+  worldAttributes: [
+    { key: 'stage', label: '殖民地阶段', initialValue: 0, min: 0, max: 7, kind: 'counter', integer: true, primary: true },
+    { key: 'progress', label: '建设进度', initialValue: 0, min: 0, max: 100, kind: 'counter', integer: true, primary: true },
+    { key: 'tech', label: '公共科技', initialValue: 30, min: 0, max: 100, kind: 'counter', integer: true, primary: true },
+    { key: 'resources', label: '公共资源', initialValue: 40, min: 0, max: 100, kind: 'resource', integer: true, primary: true, unit: '单位' },
+  ],
 
   initialWorldStatus:
     '主船体断裂成三截，幸存者不到两千人。生态穹顶只够支撑二十年，而补给船永远不会来了。',
@@ -32,11 +52,14 @@ export const starArk: WorldSetting = {
     '生态穹顶极其脆弱：一次失压、一场瘟疫，几十年的积累就会归零。',
     '技术不能凭空获得，每一项突破都需要资源、时间和试错。',
     '殖民地里每个人都是不可替代的，死亡不只是数字。',
-    '机械会老化，人会衰老，维护本身就是生存的一部分。',
+    '机械会老化，人会衰老；殖民地阶段属于共同建设，不决定个人寿命。',
+    '这一局只扮演当前人物：人物死亡时本局结束，殖民地已建成的状态仍保留在存档里。',
     '没有第二次补给船。',
   ],
 
   attributes: [
+    { key: 'work', label: '个人贡献', initialValue: 0, min: 0, max: 100, kind: 'counter', integer: true, primary: true },
+    { key: 'health', label: '健康', initialValue: 60, min: 0, max: 100, kind: 'counter', integer: true, primary: true, roll: { min: 40, max: 80 } },
     {
       key: 'stage',
       label: '阶段',
@@ -196,10 +219,10 @@ export const starArk: WorldSetting = {
     },
     turnLimit: {
       reason: '故事在此收束',
-      narrative: '你的故事在此收束。享年 {age} 岁。',
+      narrative: '你在 {age} 岁回望殖民地走过的路，自己的故事在这里告一段落。',
     },
     deathByProposal: '{reason}。你的一生在此戛然而止，享年 {age} 岁。',
-    completionByProposal: '{reason}。你的故事在此收束，享年 {age} 岁。',
+    completionByProposal: '{reason}。你在 {age} 岁见证了殖民地的新阶段。',
   },
 
   talents: [
@@ -208,7 +231,7 @@ export const starArk: WorldSetting = {
       name: '工程师出身',
       description: '你从小在维修舱长大，闭着眼也能拆开一台循环泵。',
       modifiers: {},
-      attributeBonus: { tech: 20 },
+      attributeBonus: { wit: 20 },
     },
     {
       id: 'former-soldier',
@@ -221,8 +244,8 @@ export const starArk: WorldSetting = {
       id: 'negotiator',
       name: '谈判专家',
       description: '两千个人挤在一个穹顶下，最稀缺的资源是让人不打架的本事。',
-      modifiers: { breakthroughBonus: 4 },
-      attributeBonus: { wit: 20 },
+      modifiers: {},
+      attributeBonus: { resolve: 20 },
     },
     {
       id: 'lucky-drift',
@@ -235,28 +258,28 @@ export const starArk: WorldSetting = {
       id: 'stubborn',
       name: '顽固分子',
       description: '所有人都说不行的时候，你偏要再试一次。',
-      modifiers: { breakthroughBonus: 4 },
+      modifiers: {},
       attributeBonus: { resolve: 20 },
     },
     {
       id: 'merchant-heir',
       name: '富商遗孤',
-      description: '你的家族买下了这艘船的货舱，也把资源留给了你。',
+      description: '你的家族买下了这艘船的货舱，也把设备清单和谈判记录留给了你。',
       modifiers: {},
-      attributeBonus: { resources: 80, resolve: 10 },
+      attributeBonus: { wit: 10, resolve: 10 },
     },
     {
       id: 'lower-deck',
       name: '底层出身',
       description: '你在最下层的舱室里长大，知道怎么用最少的资源做最多的事。',
-      modifiers: { cultivationGainMul: 1.2 },
-      attributeBonus: { resources: -10 },
+      modifiers: {},
+      attributeBonus: { vigor: 10 },
     },
     {
       id: 'lone-walker',
       name: '独行者',
       description: '你不擅长和人打交道，但一个人能做的事比你想象的多。',
-      modifiers: { cultivationGainMul: 1.25 },
+      modifiers: {},
       attributeBonus: { wit: -10 },
     },
   ],

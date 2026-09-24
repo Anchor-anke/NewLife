@@ -59,6 +59,7 @@ export interface RunSegmentInput {
   world: WorldSetting;
   character: CharacterState;
   worldStatus: string;
+  worldAttributes?: Record<string, number>;
   historySummary: string;
   recentSegments: readonly LifeSegmentRecord[];
   /** 玩家在上一处岔路口的决定。世界自行运转时不传。 */
@@ -90,6 +91,7 @@ export function buildSegmentContext(input: RunSegmentInput, stopPlan: StopPlan):
   const context: SegmentContext = {
     world: input.world,
     worldStatus: input.worldStatus,
+    ...(input.worldAttributes ? { worldAttributes: input.worldAttributes } : {}),
     character: input.character,
     historySummary: input.historySummary,
     recentSegments: [...input.recentSegments],
@@ -177,6 +179,7 @@ export async function runSegment(input: RunSegmentInput): Promise<RunSegmentOutp
       world,
       character: input.character,
       worldStatus: input.worldStatus,
+      ...(input.worldAttributes ? { worldAttributes: input.worldAttributes } : {}),
       proposal,
       segmentId: input.segmentId,
       lastDecisionSegmentId: input.lastDecisionSegmentId,

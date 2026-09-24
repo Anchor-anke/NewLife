@@ -3,11 +3,11 @@ import type { WorldSetting } from '@/lib/engine/types';
 /**
  * 内置世界观：浮生记
  *
- * 现代都市题材。与修仙世界最大的机制差异：**这里没有超凡力量**。
- * 「阶位」是社会阶层而非修为，寿元只随生活条件小幅增长（无依 62 岁 → 名门 95 岁），
- * 因此时间才是真正稀缺的东西——一年只能做一件事。
+ * 现代都市题材。新开局使用 open_life：事业、健康和关系各自变化，
+ * 不再把社会阶层当成修仙境界，也不靠晋阶续命。
  *
- * 修为曲线（学识 50 时每年积累「事业」）：
+ * 下方 mechanics 保留原规则的数值参数，仅供旧存档与旧模拟器对照。
+ * 旧版修为曲线（学识 50 时每年积累「事业」）：
  *   无依 9×1.25 = 11.3 → 约 9 年
  *   温饱 7.7×1.25 = 9.7 → 约 10 年
  *   小康 6.7×1.25 = 8.3 → 约 12 年
@@ -23,6 +23,31 @@ export const fushengJi: WorldSetting = {
   description:
     '一座普通的城市，一群普通的人。你十八岁那年离开家，往后几十年要在这座城市里挣出自己的一席之地。没有奇迹，只有选择。',
   timeUnit: 'year',
+  ruleset: {
+    kind: 'open_life',
+    version: 2,
+    healthKey: 'health',
+    spiritKey: 'spirit',
+    careerKey: 'career',
+    luckKey: 'fortune',
+    lethalEventKeywords: ['重病', '绝症', '车祸', '意外', '重症', '濒死', '猝死', '凶案', '事故'],
+    startingAge: 18,
+    legacyHiddenKeys: ['stratum'],
+    agingStartAge: 45,
+    annualHealthLoss: 1,
+    maxAge: 105,
+    completionMinAge: 55,
+    maxDeltaPerSegment: 25,
+    segmentSoftLimit: 80,
+    naturalDeath: {
+      reason: '生命走到尽头',
+      narrative: '这一年，你的身体再也无法支撑。城市照常醒来，而你的一生停在了 {age} 岁。',
+    },
+    healthDeath: {
+      reason: '健康耗尽',
+      narrative: '多年积累的病痛终于让你停下脚步。你在 {age} 岁离开了这个世界。',
+    },
+  },
 
   initialWorldStatus:
     '经济增速放缓，房价高企，行业每隔几年就换一次风口。你手里只有一张车票和不多的一点钱。',
@@ -54,7 +79,7 @@ export const fushengJi: WorldSetting = {
       initialValue: 0,
       min: 0,
       max: 100,
-      kind: 'progress',
+      kind: 'counter',
       integer: true,
       primary: true,
     },
@@ -198,11 +223,11 @@ export const fushengJi: WorldSetting = {
         '你站在自己一手建起来的一切面前，忽然觉得够了。往后余生，终于可以只为自己活。',
     },
     turnLimit: {
-      reason: '岁月流转，此生已尽',
-      narrative: '日子一天天过去，你的故事在此收束。享年 {age} 岁。',
+      reason: '这一段人生在此收束',
+      narrative: '日子一天天过去，你在 {age} 岁回望此前走过的路，决定翻开新的一页。',
     },
     deathByProposal: '{reason}。你的一生在此戛然而止，享年 {age} 岁。',
-    completionByProposal: '{reason}。你的故事在此收束，享年 {age} 岁。',
+    completionByProposal: '{reason}。你在 {age} 岁为这一段人生作了收束，往后的日子仍属于你。',
   },
 
   talents: [
@@ -245,22 +270,22 @@ export const fushengJi: WorldSetting = {
       id: 'poor-but-driven',
       name: '寒门贵子',
       description: '你什么都没有，所以什么都敢试。',
-      modifiers: { cultivationGainMul: 1.15 },
-      attributeBonus: { spirit: 10 },
+      modifiers: {},
+      attributeBonus: { spirit: 10, career: 10 },
     },
     {
       id: 'old-soul',
       name: '少年老成',
       description: '同龄人还在迷茫的时候，你已经想清楚了自己要什么。',
-      modifiers: { breakthroughBonus: 5 },
-      attributeBonus: { spirit: 20 },
+      modifiers: {},
+      attributeBonus: { spirit: 20, career: 5 },
     },
     {
       id: 'late-bloomer-life',
       name: '大器晚成',
       description: '起步比人慢，但走得比人远。代价是身体。',
-      modifiers: { cultivationGainMul: 1.25 },
-      attributeBonus: { health: -10 },
+      modifiers: {},
+      attributeBonus: { career: -10, insight: 20, health: -10 },
     },
   ],
 };

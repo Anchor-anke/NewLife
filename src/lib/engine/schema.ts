@@ -88,6 +88,7 @@ export const segmentProposalSchema = z
     entries: z.array(zEntry).min(1).max(16),
     timeAdvance: zNumeric,
     attributeDeltas: z.record(z.string(), zNumeric).default({}),
+    worldDeltas: z.record(z.string(), zNumeric).optional(),
     worldStatusUpdate: z.string().max(4000).nullish(),
     traitOps: z.array(zListOp).max(10).nullish(),
     inventoryOps: z.array(zListOp).max(20).nullish(),
@@ -173,6 +174,8 @@ function toSegmentProposal(parsed: ParsedSegmentProposal): SegmentProposal {
     timeAdvance: parsed.timeAdvance,
     attributeDeltas: { ...parsed.attributeDeltas },
   };
+
+  if (parsed.worldDeltas != null) proposal.worldDeltas = { ...parsed.worldDeltas };
 
   if (parsed.worldStatusUpdate != null) proposal.worldStatusUpdate = parsed.worldStatusUpdate;
   if (parsed.traitOps != null) proposal.traitOps = parsed.traitOps;
@@ -270,6 +273,30 @@ const zWorldSetting = z.object({
   initialWorldStatus: z.string(),
   timeUnit: z.enum(['year', 'month', 'day']),
   attributes: z.array(zAttributeDefinition).min(1),
+  worldAttributes: z.array(zAttributeDefinition).optional(),
+  ruleset: z.object({
+    kind: z.literal('open_life'),
+    version: z.literal(2),
+    healthKey: z.string(),
+    spiritKey: z.string(),
+    careerKey: z.string(),
+    luckKey: z.string(),
+    lethalEventKeywords: z.array(z.string()),
+    startingAge: z.number(),
+    legacyHiddenKeys: z.array(z.string()),
+    agingStartAge: z.number(),
+    annualHealthLoss: z.number(),
+    maxAge: z.number(),
+    completionMinAge: z.number(),
+    maxDeltaPerSegment: z.number(),
+    segmentSoftLimit: z.number(),
+    naturalDeath: zEndingPair,
+    healthDeath: zEndingPair,
+    earnedRank: z.object({ key: z.string(), evidenceKeywords: z.array(z.string()) }).optional(),
+    worldProgress: z.object({
+      stageKey: z.string(), progressKey: z.string(), stageNames: z.array(z.string()), threshold: z.number(),
+    }).optional(),
+  }).optional(),
   mechanics: z.object({
     cultivationKey: z.string(),
     realmKey: z.string(),
@@ -336,9 +363,11 @@ const zModelMeta = z.object({
 const zSaveRecord = z.object({
   id: z.string().min(1),
   schemaVersion: z.number(),
+  rulesetVersion: z.number().optional(),
   revision: z.number(),
   world: zWorldSetting,
   worldStatus: z.string(),
+  worldAttributes: z.record(z.string(), z.number()).optional(),
   character: zCharacterState,
   historySummary: z.string(),
   summarizedThroughSegmentId: z.number(),
@@ -368,19 +397,22 @@ const zLifeEntry = z.object({
   kind: z.enum(ENTRY_KINDS as unknown as [string, ...string[]]),
   text: z.string(),
   detail: z.string().optional(),
+  settledAttributes: z.record(z.string(), z.number()).optional(),
+  settledWorldAttributes: z.record(z.string(), z.number()).optional(),
 });
 
 const zDecisionPoint = z.object({
   prompt: z.string(),
   stakes: z.string(),
   options: z.array(z.string()),
-  cause: z.enum(['proposed', 'breakthrough', 'near-end', 'long-gap']),
+  cause: z.enum(['proposed', 'breakthrough', 'near-end', 'life-turn', 'long-gap']),
 });
 
 const zLifeSegment = z.object({
   entries: z.array(zLifeEntry).min(1),
   timeAdvance: z.number(),
   attributeDeltas: z.record(z.string(), z.number()),
+  worldDeltas: z.record(z.string(), z.number()).optional(),
   worldStatusUpdate: z.string().optional(),
   traitOps: z.array(zListOp).optional(),
   inventoryOps: z.array(zListOp).optional(),
@@ -398,7 +430,9 @@ const zLifeSegmentRecord = z.object({
   segment: zLifeSegment,
   resolvedCharacter: zCharacterState,
   characterBefore: zCharacterState,
+  worldAttributesBefore: z.record(z.string(), z.number()).optional(),
   resolvedWorldStatus: z.string(),
+  resolvedWorldAttributes: z.record(z.string(), z.number()).optional(),
   ending: zEnding.optional(),
   validationWarnings: z.array(z.string()),
   modelMeta: zModelMeta,

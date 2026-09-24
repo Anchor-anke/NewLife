@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { WorldForge } from '@/components/WorldForge';
 import { Badge, Button, EmptyState, Field, Panel, TextInput } from '@/components/ui';
 import type { Talent, WorldSetting } from '@/lib/engine/types';
+import { openLifeRules, visibleAttributes } from '@/lib/engine/ruleset';
 import { useCustomWorlds } from '@/lib/hooks/useCustomWorlds';
 import { useModelSettings } from '@/lib/hooks/useModelSettings';
 import { applyTalentBonus, createGame, rollBaseAttributes } from '@/lib/services/gameService';
@@ -27,7 +28,7 @@ export function CharacterCreator() {
   const customWorlds = useCustomWorlds();
 
   const defaultWorld = WORLDS[0];
-  const [worldId, setWorldId] = useState(defaultWorld?.id ?? '');
+  const [worldId, setWorldId] = useState('');
   const [name, setName] = useState('');
   const [talentId, setTalentId] = useState<string | undefined>(undefined);
   const [creating, setCreating] = useState(false);
@@ -63,21 +64,24 @@ export function CharacterCreator() {
   // 属性集合变化（换世界或重新生成）时重新掷点。用内容签名而不是对象身份做判据，
   // 否则任何一次引用变化都会触发重掷，掷出的新值又引起渲染，直接死循环。
   const worldSignature = world
-    ? `${world.id}:${world.attributes.map((attribute) => attribute.key).join(',')}`
+    ? `${world.id}:${JSON.stringify(world.attributes)}:${JSON.stringify(world.ruleset ?? null)}`
     : '';
 
   useEffect(() => {
-    if (!world || rolledFor.current === worldSignature) return;
+    if (!worldId || !world || rolledFor.current === worldSignature) return;
     rolledFor.current = worldSignature;
     setBase(rollBaseAttributes(world, Math.random));
-  }, [world, worldSignature]);
+  }, [world, worldId, worldSignature]);
 
   if (!world) {
     return <EmptyState>没有可用的世界观。</EmptyState>;
   }
 
-  const finalAttributes = base ? applyTalentBonus(world, base, talentId) : null;
+  const finalAttributes = worldId && base && rolledFor.current === worldSignature
+    ? applyTalentBonus(world, base, talentId)
+    : null;
   const selectedTalent = world.talents.find((talent) => talent.id === talentId);
+  const open = openLifeRules(world);
 
   function handleWorldChange(nextId: string) {
     if (!allWorlds.some((candidate) => candidate.id === nextId)) return;
@@ -89,7 +93,7 @@ export function CharacterCreator() {
   async function handleDeleteCustom(id: string) {
     await deleteCustomWorld(id);
     if (worldId === id) {
-      setWorldId(defaultWorld?.id ?? '');
+      setWorldId('');
       setTalentId(undefined);
     }
   }
@@ -124,11 +128,11 @@ export function CharacterCreator() {
       <Panel
         title="选择世界观"
         description="规则一旦定下，程序与模型都不会改写它。"
-        actions={!forging ? <Button onClick={() => setForging(true)}>＋ 创造新世界</Button> : undefined}
+        actions={!forging ? <Button onClick={() => setForging(true)}>＋ 创建世界</Button> : undefined}
       >
         <div className="grid gap-3 sm:grid-cols-2">
           {allWorlds.map((candidate) => {
-            const active = candidate.id === world.id;
+            const active = candidate.id === worldId;
             const record = customById.get(candidate.id);
 
             return (
@@ -143,6 +147,7 @@ export function CharacterCreator() {
                 <button
                   type="button"
                   onClick={() => handleWorldChange(candidate.id)}
+                  aria-pressed={active}
                   className="w-full cursor-pointer p-4 text-left"
                 >
                   <div className="mb-1 flex flex-wrap items-center gap-1.5 pr-14">
@@ -172,13 +177,13 @@ export function CharacterCreator() {
 
         {customById.size === 0 && !forging && (
           <p className="mt-3 text-xs leading-relaxed text-ink-500">
-            上面是四个内置世界。想玩别的题材，点右上角「创造新世界」——
-            用一句话描述背景，剩下的交给模型。
+            先选一个世界，也可以用世界工坊创建开放人生或阶位成长世界。
           </p>
         )}
       </Panel>
 
-      <Panel title="角色" description={`起始年龄 ${world.mechanics.startingAge} 岁。`}>
+      {worldId && <>
+      <Panel title="角色" description={`起始年龄 ${open?.startingAge ?? world.mechanics.startingAge} 岁。`}>
         <Field label="姓名" htmlFor="name" hint="留空会记为「无名」。">
           <TextInput
             id="name"
@@ -191,8 +196,10 @@ export function CharacterCreator() {
       </Panel>
 
       <Panel
-        title="资质"
-        description="掷点只决定起点，天赋决定上限。换天赋不需要重掷——加成会直接叠上去。"
+        title={open ? '起始条件' : '资质'}
+        description={open
+          ? '这些数值决定你的起点；往后会随经历和选择变化。'
+          : '掷点只决定起点，天赋会影响之后的结算。换天赋不需要重掷。'}
         actions={
           <Button
             disabled={base === null}
@@ -206,7 +213,7 @@ export function CharacterCreator() {
           <p className="text-sm text-ink-500">正在掷点…</p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {world.attributes
+            {visibleAttributes(world)
               .filter((definition) => definition.roll)
               .map((definition) => {
                 const value = finalAttributes[definition.key] ?? 0;
@@ -243,11 +250,11 @@ export function CharacterCreator() {
         )}
       </Panel>
 
-      <Panel title="天赋" description="只能选一个。它通过数值修正真实影响结算，不只是设定文案。">
+      <Panel title={open ? '成长背景' : '天赋'} description="可选一个，所示属性变化会计入开局状态。">
         <div className="grid gap-3 sm:grid-cols-2">
           {world.talents.map((talent) => {
             const active = talent.id === talentId;
-            const modifiers = describeModifiers(talent);
+            const modifiers = open ? [] : describeModifiers(talent);
             const bonuses = Object.entries(talent.attributeBonus ?? {});
 
             return (
@@ -255,6 +262,7 @@ export function CharacterCreator() {
                 key={talent.id}
                 type="button"
                 onClick={() => setTalentId(active ? undefined : talent.id)}
+                aria-pressed={active}
                 className={`cursor-pointer rounded-md border p-4 text-left transition-colors ${
                   active
                     ? 'border-gold-500/70 bg-gold-900/25'
@@ -298,10 +306,10 @@ export function CharacterCreator() {
         </Button>
         {selectedTalent ? (
           <span className="text-sm text-ink-400">
-            已选天赋：<span className="text-gold-300">{selectedTalent.name}</span>
+            已选{open ? '背景' : '天赋'}：<span className="text-gold-300">{selectedTalent.name}</span>
           </span>
         ) : (
-          <span className="text-sm text-ink-500">未选天赋也可以开始。</span>
+          <span className="text-sm text-ink-500">不选{open ? '背景' : '天赋'}也可以开始。</span>
         )}
         {!configured && (
           <span className="text-sm text-gold-300">
@@ -309,6 +317,7 @@ export function CharacterCreator() {
           </span>
         )}
       </div>
+      </>}
     </div>
   );
 }

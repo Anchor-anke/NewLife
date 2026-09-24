@@ -238,6 +238,15 @@ describe('normalizeSegment', () => {
     expect(warnings.join('\n')).toContain('修为');
   });
 
+  it('忽略模型给出的境界变化，避免与程序突破叠加', () => {
+    const { proposal, warnings } = normalize({
+      attributeDeltas: { realm: 1, comprehension: 2 },
+    });
+
+    expect(proposal.attributeDeltas).toEqual({ comprehension: 2 });
+    expect(warnings.join('\n')).toContain('境界由系统判定');
+  });
+
   it('把超出上限的属性变化裁剪到 maxDeltaPerSegment', () => {
     const { proposal, warnings } = normalize({ attributeDeltas: { reputation: 100 } });
 
@@ -363,6 +372,18 @@ describe('resolveSegment', () => {
     expect(result.breakdown.breakthroughs[0]?.success).toBe(true);
     expect(result.character.attributes['realm']).toBe(1);
     expect(result.character.attributes['cultivation']).toBe(5);
+    expect(result.segment.entries[0]?.settledAttributes?.['realm']).toBe(0);
+    expect(result.segment.entries.at(-1)?.text).toBe('你的境界提升至「炼气」。');
+    expect(result.segment.entries.at(-1)?.settledAttributes?.['realm']).toBe(1);
+  });
+
+  it('即使直接进入结算层，模型的境界增量也不能叠加到程序突破上', () => {
+    const result = resolve(makeCharacter({ attributes: { cultivation: 95 } }), {
+      timeAdvance: 1,
+      attributeDeltas: { realm: 1 },
+    }, { rng: sequenceRng([0]) });
+
+    expect(result.character.attributes['realm']).toBe(1);
   });
 
   it('突破失败时扣除修为', () => {
@@ -373,6 +394,21 @@ describe('resolveSegment', () => {
     expect(result.breakdown.breakthroughs[0]?.success).toBe(false);
     expect(result.character.attributes['realm']).toBe(0);
     expect(result.character.attributes['cultivation']).toBe(105 - 30);
+    expect(result.segment.entries.at(-1)?.text).toBe('你尝试提升境界，未能成功，仍为「凡人」。');
+  });
+
+  it('最后一条之后发生的突破也会写进年表', () => {
+    const character = makeCharacter({ attributes: { cultivation: 95 } });
+    const result = resolve(character, {
+      entries: [{ age: 16, kind: 'cultivation', text: '你准备冲击瓶颈。' }],
+      timeAdvance: 1,
+    }, { rng: sequenceRng([0]) });
+
+    expect(result.segment.entries.map((entry) => entry.age)).toEqual([16, 17]);
+    expect(result.segment.entries[1]?.text).toBe('你的境界提升至「炼气」。');
+    expect(result.segment.entries[0]?.settledAttributes?.['realm']).toBe(0);
+    expect(result.segment.entries[1]?.settledAttributes?.['realm']).toBe(1);
+    expect(result.character.attributes['realm']).toBe(1);
   });
 
   it('一段内可以连续突破多次，但受上限约束', () => {

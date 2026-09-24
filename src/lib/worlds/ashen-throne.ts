@@ -23,6 +23,17 @@ export const ashenThrone: WorldSetting = {
   description:
     '王国边境的灰烬领，魔物自裂谷涌出已经三代人了。你十六岁那年接过一把生锈的短剑，从此靠接委托活着。',
   timeUnit: 'year',
+  ruleset: {
+    kind: 'open_life', version: 2,
+    healthKey: 'health', spiritKey: 'resolve', careerKey: 'exploits', luckKey: 'fortune',
+    lethalEventKeywords: ['重伤', '致命', '贯穿', '中毒', '濒死', '断气', '焚身'],
+    startingAge: 16, legacyHiddenKeys: [],
+    agingStartAge: 45, annualHealthLoss: 1, maxAge: 95, completionMinAge: 45,
+    maxDeltaPerSegment: 30, segmentSoftLimit: 80,
+    earnedRank: { key: 'rank', evidenceKeywords: ['委托完成', '公会评定', '公会授予', '公会晋升'] },
+    naturalDeath: { reason: '生命走到尽头', narrative: '多年的旅途终于结束。你在 {age} 岁合上了眼。' },
+    healthDeath: { reason: '伤病耗尽体力', narrative: '往年留下的伤再也没有好转，你在 {age} 岁停下了脚步。' },
+  },
 
   initialWorldStatus:
     '裂谷的魔物活动愈发频繁，边境三座城镇已被放弃。冒险者公会悬赏翻倍，但回来的队伍越来越少。',
@@ -30,7 +41,7 @@ export const ashenThrone: WorldSetting = {
   rules: [
     '魔法真实存在，但代价高昂：每次施法都要消耗生命力或珍贵材料。',
     '剑刃与爪牙不长眼，死亡往往来得毫无预兆。',
-    '阶位越高，要面对的怪物越强；退缩不会让你活得更久。',
+    '冒险者公会只依据完成的委托与正式评定调整评级；评级不会延长寿命。',
     '名声是双刃剑：它带来委托，也招来仇敌。',
     '治疗可以救回重伤，但救不回已经失去的肢体与理智。',
     '没有无代价的力量，任何捷径都在暗中标好了价钱。',
@@ -38,9 +49,10 @@ export const ashenThrone: WorldSetting = {
   ],
 
   attributes: [
+    { key: 'health', label: '健康', initialValue: 60, min: 0, max: 100, kind: 'counter', integer: true, primary: true, roll: { min: 40, max: 80 } },
     {
       key: 'rank',
-      label: '阶位',
+      label: '公会评级',
       initialValue: 0,
       min: 0,
       max: 7,
@@ -54,7 +66,7 @@ export const ashenThrone: WorldSetting = {
       initialValue: 0,
       min: 0,
       max: 100,
-      kind: 'progress',
+      kind: 'counter',
       integer: true,
       primary: true,
     },
@@ -199,10 +211,10 @@ export const ashenThrone: WorldSetting = {
     },
     turnLimit: {
       reason: '冒险在此告一段落',
-      narrative: '你的冒险在此告一段落。享年 {age} 岁。',
+      narrative: '你在 {age} 岁暂时放下了手中的剑，回望这一路的委托与同伴。',
     },
     deathByProposal: '{reason}。你的一生在此戛然而止，享年 {age} 岁。',
-    completionByProposal: '{reason}。你的故事在此收束，享年 {age} 岁。',
+    completionByProposal: '{reason}。你在 {age} 岁告别了这一段冒险。',
   },
 
   talents: [
@@ -224,7 +236,7 @@ export const ashenThrone: WorldSetting = {
       id: 'arcane-affinity',
       name: '秘法亲和',
       description: '咒文在你眼里不是符号，是能读懂的句子。',
-      modifiers: { breakthroughBonus: 4 },
+      modifiers: {},
       attributeBonus: { arcana: 20 },
     },
     {
@@ -238,7 +250,7 @@ export const ashenThrone: WorldSetting = {
       id: 'heart-of-stone',
       name: '铁石心肠',
       description: '同伴死在面前，你也能把刀拔出来继续往前走。',
-      modifiers: { breakthroughBonus: 4 },
+      modifiers: {},
       attributeBonus: { resolve: 20 },
     },
     {
@@ -252,15 +264,15 @@ export const ashenThrone: WorldSetting = {
       id: 'survivor',
       name: '战地余生',
       description: '你从一场全军覆没的远征里爬了回来。',
-      modifiers: { cultivationGainMul: 1.2 },
-      attributeBonus: { resolve: -10 },
+      modifiers: {},
+      attributeBonus: { health: 15, resolve: -10 },
     },
     {
       id: 'desperado',
       name: '亡命之徒',
       description: '你不在乎规则，只在乎能不能活到明天。',
-      modifiers: { cultivationGainMul: 1.25 },
-      attributeBonus: { fortune: -10 },
+      modifiers: {},
+      attributeBonus: { exploits: 15, fortune: -10 },
     },
   ],
 };

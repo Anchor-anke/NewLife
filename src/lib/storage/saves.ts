@@ -166,6 +166,7 @@ export interface CommitSegmentInput {
   next: {
     character: CharacterState;
     worldStatus: string;
+    worldAttributes?: Record<string, number>;
     historySummary?: string;
     summarizedThroughSegmentId?: number;
     status: 'active' | 'ended';
@@ -218,6 +219,7 @@ export async function commitSegment(input: CommitSegmentInput): Promise<CommitSe
       ...save,
       character: input.next.character,
       worldStatus: input.next.worldStatus,
+      ...(input.next.worldAttributes ? { worldAttributes: input.next.worldAttributes } : {}),
       status: input.next.status,
       stats: input.next.stats,
       revision: save.revision + 1,

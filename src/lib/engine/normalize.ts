@@ -9,6 +9,8 @@ import {
   type SegmentProposal,
   type WorldSetting,
 } from './types';
+import { openLifeRules } from './ruleset';
+import { timeAdvanceHint } from './pacing';
 
 /**
  * 数值规整层。
@@ -228,7 +230,8 @@ export function normalizeSegment(
 ): NormalizeResult {
   const warnings: string[] = [];
   const definitions = new Map(world.attributes.map((attribute) => [attribute.key, attribute]));
-  const { cultivationKey, maxDeltaPerSegment } = world.mechanics;
+  const { cultivationKey, realmKey, maxDeltaPerSegment } = world.mechanics;
+  const open = openLifeRules(world);
 
   // ── 时间增量 ──────────────────────────────────────────────
   // 先算时间，因为条目年龄校正要用到它。
@@ -242,6 +245,13 @@ export function normalizeSegment(
     warnings.push(`本段时间跨度 ${timeAdvance} 年超出上限 ${TIME_ADVANCE_MAX} 年，已裁剪`);
     timeAdvance = TIME_ADVANCE_MAX;
   }
+  if (open) {
+    const [, maxOpenSpan] = timeAdvanceHint(world, 0);
+    if (timeAdvance > maxOpenSpan) {
+      warnings.push(`本段时间跨度超过此世界的 ${maxOpenSpan} 年上限，已裁剪`);
+      timeAdvance = maxOpenSpan;
+    }
+  }
 
   // ── 条目 ──────────────────────────────────────────────────
   const entries = cleanEntries(raw.entries, character.age, timeAdvance, warnings);
@@ -254,9 +264,18 @@ export function normalizeSegment(
       warnings.push(`忽略了未定义的属性键「${key}」`);
       continue;
     }
+    if (open?.legacyHiddenKeys.includes(key)) {
+      warnings.push(`忽略了旧规则专用的属性「${definition.label}」`);
+      continue;
+    }
 
-    // 「进度」类属性是程序拥有的量：由时间与资质结算，模型说了不算。
-    if (key === cultivationKey) {
+    // 进度与阶位都只能由程序结算。模型即使违反提示词给了增量，也不能
+    // 先改阶位再参与突破判定，否则故事只写一次晋升，状态却可能跳两阶。
+    if (!open && key === realmKey) {
+      warnings.push(`${definition.label}由系统判定，已忽略模型给出的${definition.label}增减`);
+      continue;
+    }
+    if (!open && key === cultivationKey) {
       const aptitudeLabel =
         definitions.get(world.mechanics.cultivationGain.aptitudeKey)?.label ?? '资质';
       warnings.push(
@@ -272,27 +291,50 @@ export function normalizeSegment(
     }
     if (definition.integer) value = Math.round(value);
 
-    if (Math.abs(value) > maxDeltaPerSegment) {
+    const deltaLimit = open?.maxDeltaPerSegment ?? maxDeltaPerSegment;
+    if (Math.abs(value) > deltaLimit) {
       warnings.push(
-        `属性「${definition.label}」单段变化 ${value} 超出上限 ±${maxDeltaPerSegment}，已裁剪`,
+        `属性「${definition.label}」单段变化 ${value} 超出上限 ±${deltaLimit}，已裁剪`,
       );
-      value = clamp(value, -maxDeltaPerSegment, maxDeltaPerSegment);
+      value = clamp(value, -deltaLimit, deltaLimit);
     }
 
     if (value !== 0) attributeDeltas[key] = value;
   }
 
+  const worldDeltas: Record<string, number> = {};
+  const worldDefinitions = new Map((world.worldAttributes ?? []).map((attribute) => [attribute.key, attribute]));
+  for (const [key, rawValue] of Object.entries(raw.worldDeltas ?? {})) {
+    const definition = worldDefinitions.get(key);
+    if (!definition) {
+      warnings.push(`忽略了未定义的世界属性「${key}」`);
+      continue;
+    }
+    if (key === open?.worldProgress?.stageKey) {
+      warnings.push(`${definition.label}由世界建设进度判定，已忽略模型直接给出的阶段变化`);
+      continue;
+    }
+    let value = Number.isFinite(rawValue) ? rawValue : 0;
+    if (!Number.isFinite(rawValue)) warnings.push(`世界属性「${definition.label}」的变化量无效，已按 0 处理`);
+    if (definition.integer) value = Math.round(value);
+    value = clamp(value, -(open?.maxDeltaPerSegment ?? maxDeltaPerSegment), open?.maxDeltaPerSegment ?? maxDeltaPerSegment);
+    if (value !== 0) worldDeltas[key] = value;
+  }
+
   // 意志类属性归零会直接触发程序的死亡判定，
   // 因此不允许模型用一次数值变化把角色直接推死——最多扣到死亡线上方一点。
-  const willpowerKey = world.mechanics.death.willpowerKey;
+  const willpowerKey = open?.healthKey ?? world.mechanics.death.willpowerKey;
   const willpowerLabel = definitions.get(willpowerKey)?.label ?? willpowerKey;
   const willpowerDelta = attributeDeltas[willpowerKey];
   if (willpowerDelta !== undefined) {
     const current = character.attributes[willpowerKey] ?? 0;
-    if (current + willpowerDelta <= world.mechanics.death.willpowerThreshold) {
-      const capped = world.mechanics.death.willpowerThreshold + 1 - current;
+    const threshold = open ? 0 : world.mechanics.death.willpowerThreshold;
+    if (current + willpowerDelta <= threshold) {
+      const capped = threshold + 1 - current;
       warnings.push(
-        `属性「${willpowerLabel}」的变化会把角色直接推入崩溃结局，已限制为 ${capped}（程序不接受模型直接判死）`,
+        open
+          ? `属性「${willpowerLabel}」的变化会让角色直接死亡，已限制为 ${capped}（程序不接受模型直接判死）`
+          : `属性「${willpowerLabel}」的变化会把角色直接推入崩溃结局，已限制为 ${capped}（程序不接受模型直接判死）`,
       );
       if (capped === 0) delete attributeDeltas[willpowerKey];
       else attributeDeltas[willpowerKey] = capped;
@@ -322,6 +364,8 @@ export function normalizeSegment(
     timeAdvance,
     attributeDeltas,
   };
+
+  if (Object.keys(worldDeltas).length > 0) proposal.worldDeltas = worldDeltas;
 
   if (worldStatusUpdate !== undefined) proposal.worldStatusUpdate = worldStatusUpdate;
   if (endingProposal !== undefined) proposal.endingProposal = endingProposal;

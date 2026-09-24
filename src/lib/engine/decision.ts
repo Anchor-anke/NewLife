@@ -13,6 +13,7 @@ import type {
   LifeEntry,
   WorldSetting,
 } from './types';
+import { openLifeRules } from './ruleset';
 
 /**
  * 决策点判定。
@@ -80,11 +81,16 @@ export function decisionGap(segmentId: number, lastDecisionSegmentId: number): n
 export interface StopPlan {
   /** 为真时，提示词里会明确要求模型「本段结束时必须给出一个决策点」。 */
   stop: boolean;
-  cause?: Extract<DecisionCause, 'long-gap' | 'near-end'>;
+  cause?: Extract<DecisionCause, 'long-gap' | 'near-end' | 'life-turn'>;
 }
 
 /** 角色是否已进入当前阶位的寿元末段。 */
 export function isNearEnd(world: WorldSetting, character: CharacterState): boolean {
+  const open = openLifeRules(world);
+  if (open) {
+    return character.age >= open.maxAge - 15 ||
+      (character.attributes[open.healthKey] ?? 100) <= 15;
+  }
   const realm = character.attributes[world.mechanics.realmKey] ?? 0;
   const lifespan = world.mechanics.lifespanByRealm[realm] ?? Number.POSITIVE_INFINITY;
   if (!Number.isFinite(lifespan)) return false;
@@ -119,7 +125,7 @@ export function planStop(input: {
   }
 
   if (gap >= NEAR_END_MIN_GAP && isNearEnd(input.world, input.character)) {
-    return { stop: true, cause: 'near-end' };
+    return { stop: true, cause: openLifeRules(input.world) ? 'life-turn' : 'near-end' };
   }
 
   return { stop: false };
@@ -213,5 +219,6 @@ export const DECISION_CAUSE_LABELS: Record<DecisionCause, string> = {
   proposed: '模型提议',
   breakthrough: '阶位突破',
   'near-end': '寿元将尽',
+  'life-turn': '人生转折',
   'long-gap': '久未介入',
 };

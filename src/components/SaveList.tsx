@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { Badge, Button, EmptyState, Panel } from '@/components/ui';
 import type { SaveRecord } from '@/lib/engine/types';
+import { openLifeRules } from '@/lib/engine/ruleset';
 import { useSaveList } from '@/lib/hooks/useSaves';
 import { deleteSave, exportGameAsText, importGameFromText } from '@/lib/services/gameService';
 
@@ -30,9 +31,13 @@ function SaveCard({
   const [confirming, setConfirming] = useState(false);
 
   const { world, character } = save;
+  const open = openLifeRules(world);
   const realm = character.attributes[world.mechanics.realmKey] ?? 0;
   const realmLabel = world.mechanics.realmNames[realm] ?? `第 ${realm} 阶`;
   const ended = save.status === 'ended';
+  const ageLabel = ended
+    ? save.ending?.type === 'death' ? '享年' : '收束于'
+    : '年龄';
 
   async function handleExport() {
     setBusy(true);
@@ -74,7 +79,7 @@ function SaveCard({
             <span className="font-narrative text-lg tracking-wide text-ink-100">
               {character.name}
             </span>
-            <Badge tone="gold">{realmLabel}</Badge>
+            <Badge tone="gold">{open ? `${character.age} 岁` : realmLabel}</Badge>
             {ended ? (
               <Badge tone="danger">已结束</Badge>
             ) : (
@@ -83,7 +88,7 @@ function SaveCard({
           </div>
 
           <p className="text-sm text-ink-400">
-            {world.name} · 享年 {character.age} 岁 · 已推进 {save.stats.totalSegments} 段
+            {world.name} · {ageLabel} {character.age} 岁 · 已推进 {save.stats.totalSegments} 段
           </p>
 
           {ended && save.ending && (

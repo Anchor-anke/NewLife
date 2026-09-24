@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { Badge, Button, Panel, Spinner, TextArea } from '@/components/ui';
 import type { SimulationReport } from '@/lib/engine/simulate';
 import { useModelSettings } from '@/lib/hooks/useModelSettings';
+import { visibleAttributes } from '@/lib/engine/ruleset';
 import { newId } from '@/lib/services/gameService';
 import { putCustomWorld, type CustomWorldRecord } from '@/lib/storage/customWorlds';
 import { ForgeError, forgeWorld, type ForgeStage } from '@/lib/worlds/forge';
+import { forgeOpenWorld, type OpenForgeReport } from '@/lib/worlds/open-forge';
 
 const STAGE_LABELS: Record<ForgeStage, string> = {
   designing: '正在设计世界…',
@@ -14,13 +16,22 @@ const STAGE_LABELS: Record<ForgeStage, string> = {
   tuning: '正在校准数值…',
 };
 
-const EXAMPLES = [
-  '赛博朋克都市里的义体侦探',
-  '中世纪的吸血鬼贵族家族',
-  '末日之后守着一座图书馆的人',
-  '深海殖民站里最后一批居民',
-  '蒸汽朋克年代的雾港巡夜人',
-];
+type ForgeTemplate = 'open_life' | 'ranked';
+
+const EXAMPLES: Record<ForgeTemplate, string[]> = {
+  open_life: [
+    '末日之后守着一座图书馆的人',
+    '深海殖民站里最后一批居民',
+    '蒸汽年代的雾港巡夜人',
+    '在边境小镇经营一家诊所的人',
+  ],
+  ranked: [
+    '赛博朋克都市里的义体侦探',
+    '中世纪的吸血鬼贵族家族',
+    '能够晋阶的荒原游侠',
+    '拥有正式等级的星际飞行员',
+  ],
+};
 
 function describePacing(report: SimulationReport): string[] {
   const percent = (value: number) => `${(value * 100).toFixed(0)}%`;
@@ -43,9 +54,10 @@ export function WorldForge({
   const { adapter, configured } = useModelSettings();
 
   const [premise, setPremise] = useState('');
+  const [template, setTemplate] = useState<ForgeTemplate>('open_life');
   const [stage, setStage] = useState<ForgeStage | null>(null);
   const [record, setRecord] = useState<CustomWorldRecord | null>(null);
-  const [report, setReport] = useState<SimulationReport | null>(null);
+  const [report, setReport] = useState<SimulationReport | OpenForgeReport | null>(null);
   const [error, setError] = useState<{ message: string; detail?: string } | null>(null);
 
   const busy = stage !== null;
@@ -58,12 +70,15 @@ export function WorldForge({
 
     try {
       const id = reuseId ?? newId('world');
-      const result = await forgeWorld({
+      const forgeInput = {
         premise: premise.trim(),
         adapter,
         id,
         onStage: setStage,
-      });
+      };
+      const result = template === 'open_life'
+        ? await forgeOpenWorld(forgeInput)
+        : await forgeWorld(forgeInput);
 
       const now = Date.now();
       const next: CustomWorldRecord = {
@@ -95,8 +110,8 @@ export function WorldForge({
 
   return (
     <Panel
-      title="用一句话创造一个世界"
-      description="描述你想要的背景，剩下的交给模型：阶位体系、属性、天赋、世界法则与结局文案都由它设计，数值曲线由程序校准到可玩。"
+      title="用一句话创建世界"
+      description="先选择人生规则，再描述背景。模型负责世界设定，程序负责校验与结算。"
       actions={
         <Button variant="ghost" onClick={onCancel} disabled={busy}>
           收起
@@ -104,17 +119,44 @@ export function WorldForge({
       }
     >
       <div className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="人生规则模板">
+          {([
+            { value: 'open_life', title: '开放人生', detail: '选择、健康和目标各自变化，没有自动等级与晋阶续命。' },
+            { value: 'ranked', title: '阶位成长', detail: '积累进度、突破阶位，并受对应寿元限制。' },
+          ] as const).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={busy}
+              aria-pressed={template === option.value}
+              onClick={() => {
+                setTemplate(option.value);
+                setRecord(null);
+                setReport(null);
+                setError(null);
+              }}
+              className={`cursor-pointer rounded-md border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                template === option.value ? 'border-jade-500 bg-jade-900/25' : 'border-ink-700 bg-ink-900/40 hover:border-ink-500'
+              }`}
+            >
+              <span className="block text-sm font-medium text-ink-100">{option.title}</span>
+              <span className="mt-1 block text-xs leading-relaxed text-ink-400">{option.detail}</span>
+            </button>
+          ))}
+        </div>
         <TextArea
           rows={3}
           value={premise}
           onChange={(event) => setPremise(event.target.value)}
-          placeholder="例如：蒸汽与齿轮的年代，雾港的夜晚属于巡夜人"
+          placeholder={template === 'open_life'
+            ? '例如：灾后荒原上，守着一座图书馆的普通人'
+            : '例如：蒸汽与齿轮的年代，雾港的夜晚属于巡夜人'}
           maxLength={200}
           disabled={busy}
         />
 
         <div className="flex flex-wrap gap-1.5">
-          {EXAMPLES.map((example) => (
+          {EXAMPLES[template].map((example) => (
             <button
               key={example}
               type="button"
@@ -168,29 +210,33 @@ export function WorldForge({
               <p className="text-sm leading-relaxed text-ink-400">{record.world.description}</p>
             </div>
 
-            <div>
-              <p className="mb-1.5 text-xs tracking-wide text-ink-500">阶位体系</p>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {record.world.mechanics.realmNames.map((name, index) => (
-                  <span key={name} className="flex items-center gap-1.5">
-                    {index > 0 && <span className="text-ink-600">→</span>}
-                    <Badge tone={index === record.world.mechanics.realmNames.length - 1 ? 'gold' : 'neutral'}>
-                      {name}
-                    </Badge>
-                  </span>
-                ))}
+            {report && 'kind' in report ? (
+              <p className="text-xs text-ink-500">开放人生 · {report.startingAge} 岁开局 · 健康与年龄独立决定人物生命</p>
+            ) : (
+              <div>
+                <p className="mb-1.5 text-xs tracking-wide text-ink-500">阶位体系</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {record.world.mechanics.realmNames.map((name, index) => (
+                    <span key={name} className="flex items-center gap-1.5">
+                      {index > 0 && <span className="text-ink-600">→</span>}
+                      <Badge tone={index === record.world.mechanics.realmNames.length - 1 ? 'gold' : 'neutral'}>
+                        {name}
+                      </Badge>
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-ink-500">
+                  起始 {record.world.mechanics.startingAge} 岁 · 寿元上限{' '}
+                  {record.world.mechanics.lifespanByRealm[0]} →{' '}
+                  {record.world.mechanics.lifespanByRealm[record.world.mechanics.lifespanByRealm.length - 1]} 岁
+                </p>
               </div>
-              <p className="mt-2 text-xs text-ink-500">
-                起始 {record.world.mechanics.startingAge} 岁 · 寿元上限{' '}
-                {record.world.mechanics.lifespanByRealm[0]} →{' '}
-                {record.world.mechanics.lifespanByRealm[record.world.mechanics.lifespanByRealm.length - 1]} 岁
-              </p>
-            </div>
+            )}
 
             <div>
               <p className="mb-1.5 text-xs tracking-wide text-ink-500">属性</p>
               <div className="flex flex-wrap gap-1.5">
-                {record.world.attributes.map((attribute) => (
+                {visibleAttributes(record.world).map((attribute) => (
                   <Badge key={attribute.key} tone={attribute.primary ? 'jade' : 'neutral'}>
                     {attribute.label}
                   </Badge>
@@ -212,9 +258,11 @@ export function WorldForge({
             </div>
 
             <div>
-              <p className="mb-1.5 text-xs tracking-wide text-ink-500">数值校准结果</p>
+              <p className="mb-1.5 text-xs tracking-wide text-ink-500">{report && 'kind' in report ? '规则检查' : '数值校准结果'}</p>
               <p className="text-xs leading-relaxed text-ink-400">
-                {describePacing(report).join(' · ')}
+                {'kind' in report
+                  ? `无事件变化的推进在 ${report.neutralSegments} 段后因${report.neutralEnding === 'health' ? '健康' : report.neutralEnding === 'old-age' ? '自然年龄' : '未知原因'}收束；这是规则检查，不预测实际剧情。`
+                  : describePacing(report).join(' · ')}
               </p>
             </div>
 
