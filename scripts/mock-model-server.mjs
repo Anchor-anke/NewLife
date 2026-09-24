@@ -432,6 +432,13 @@ function buildOpenForgeResponse(userMessage) {
       { name: '孤僻者', description: '习惯一个人工作。', bonusKey: 'empathy', bonus: -8 },
     ],
     lethalEventKeywords: ['重伤', '冻死', '濒死'],
+    aging: false,
+    worldResources: [
+      { key: 'supplies', label: '公共补给', initialValue: 10, annualDelta: -5 },
+      { key: 'archive', label: '馆藏完整度', initialValue: 30, annualDelta: 0 },
+    ],
+    objective: { scope: 'world', key: 'archive', threshold: 70, reason: '馆藏得以保存', narrative: '你在 {age} 岁见证了图书馆的延续。' },
+    failure: { key: 'supplies', threshold: 0, reason: '公共补给耗尽', narrative: '补给耗尽，守护图书馆的计划在你 {age} 岁时失败。' },
   };
 }
 

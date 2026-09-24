@@ -94,19 +94,52 @@ export function resolveOpenLife(input: ResolveSegmentInput): ResolveSegmentResul
       : `年龄达到本世界的自然生命上限 ${activeRules.maxAge} 岁。`;
   }
 
+  function settleCustomOutcome(): void {
+    const custom = activeRules.custom;
+    if (!custom || ending) return;
+    const matches = (condition: typeof custom.objective) => {
+      const value = condition.scope === 'actor' ? attributes[condition.key] : worldAttributes[condition.key];
+      return value !== undefined && (condition.operator === 'gte'
+        ? value >= condition.threshold : value <= condition.threshold);
+    };
+    const condition = matches(custom.failure) ? custom.failure
+      : matches(custom.objective) ? custom.objective : undefined;
+    if (!condition) return;
+    const failed = condition === custom.failure;
+    ending = {
+      type: failed ? 'failure' : 'completion',
+      reason: fillTemplate(condition.reason, { age }),
+      narrative: fillTemplate(condition.narrative, { age }),
+      atSegmentId: segmentId,
+    };
+    endingCause = failed ? 'custom-failure' : 'custom-objective';
+    const label = (condition.scope === 'world' ? worldDefinitions : definitions).get(condition.key)?.label ?? condition.key;
+    endingNote = `${condition.scope === 'world' ? '世界' : '人物'}属性「${label}」${condition.operator === 'gte' ? '达到' : '降至'} ${condition.threshold}，由程序判定${failed ? '目标失败' : '目标完成'}。`;
+    entries.push({
+      age, kind: 'milestone', text: ending.reason,
+      settledAttributes: { ...attributes },
+      ...(world.worldAttributes ? { settledWorldAttributes: { ...worldAttributes } } : {}),
+    });
+  }
+
   function advanceTo(targetAge: number): void {
-    while (age < Math.min(targetAge, activeRules.maxAge) && !ending) {
+    const ages = activeRules.custom?.aging === false ? targetAge : Math.min(targetAge, activeRules.maxAge);
+    while (age < ages && !ending) {
       age += 1;
-      if (age > activeRules.agingStartAge) {
+      if (activeRules.custom?.aging !== false && age > activeRules.agingStartAge) {
         setAttribute(activeRules.healthKey, (attributes[activeRules.healthKey] ?? 0) - activeRules.annualHealthLoss);
       }
+      for (const [key, delta] of Object.entries(activeRules.custom?.annualWorldDeltas ?? {})) {
+        setWorldAttribute(key, (worldAttributes[key] ?? 0) + delta);
+      }
       if ((attributes[activeRules.healthKey] ?? 0) <= 0) settleDeath('health');
-      else if (age >= activeRules.maxAge) settleDeath('old-age');
+      else if (activeRules.custom?.aging !== false && age >= activeRules.maxAge) settleDeath('old-age');
+      settleCustomOutcome();
     }
   }
 
   if ((attributes[rules.healthKey] ?? 0) <= 0) settleDeath('health');
-  else if (age >= rules.maxAge) settleDeath('old-age');
+  else if (rules.custom?.aging !== false && age >= rules.maxAge) settleDeath('old-age');
 
   // 提议的属性变化属于整段：按条目累计分配，逐条快照不会提前展示段尾状态。
   const rankRule = rules.earnedRank;
@@ -184,6 +217,7 @@ export function resolveOpenLife(input: ResolveSegmentInput): ResolveSegmentResul
         settledAttributes: { ...attributes }, settledWorldAttributes: { ...worldAttributes },
       });
     }
+    settleCustomOutcome();
   }
 
   if (!ending) advanceTo(startAge + proposal.timeAdvance);
@@ -200,22 +234,26 @@ export function resolveOpenLife(input: ResolveSegmentInput): ResolveSegmentResul
   if (!ending && proposal.endingProposal) {
     const { type, reason } = proposal.endingProposal;
     if (type === 'completion') {
-      const objectiveMet = rules.worldProgress
-        ? (worldAttributes[rules.worldProgress.stageKey] ?? 0) >= rules.worldProgress.stageNames.length - 1
-        : age >= rules.completionMinAge;
-      if (objectiveMet && entries.some((entry) => entry.kind === 'milestone')) {
-        ending = {
-          type: 'completion',
-          reason,
-          narrative: fillTemplate(world.endings.completionByProposal, { reason, age }),
-          atSegmentId: segmentId,
-        };
-        endingCause = 'proposed-completion';
-        endingNote = rules.worldProgress
-          ? '世界建设达到最终阶段，本段发生重大转折，采纳目标完成提议。'
-          : `角色已过 ${rules.completionMinAge} 岁，且本段发生重要转折，采纳人生收束提议。`;
+      if (rules.custom) {
+        warnings.push('自建世界的目标由程序按数值条件结算，忽略模型给出的完成提议');
       } else {
-        warnings.push('模型提议目标完成，但未达到世界目标与重大事件条件，本段继续');
+        const objectiveMet = rules.worldProgress
+          ? (worldAttributes[rules.worldProgress.stageKey] ?? 0) >= rules.worldProgress.stageNames.length - 1
+          : age >= rules.completionMinAge;
+        if (objectiveMet && entries.some((entry) => entry.kind === 'milestone')) {
+          ending = {
+            type: 'completion',
+            reason,
+            narrative: fillTemplate(world.endings.completionByProposal, { reason, age }),
+            atSegmentId: segmentId,
+          };
+          endingCause = 'proposed-completion';
+          endingNote = rules.worldProgress
+            ? '世界建设达到最终阶段，本段发生重大转折，采纳目标完成提议。'
+            : `角色已过 ${rules.completionMinAge} 岁，且本段发生重要转折，采纳人生收束提议。`;
+        } else {
+          warnings.push('模型提议目标完成，但未达到世界目标与重大事件条件，本段继续');
+        }
       }
     } else {
       const lethal = entries.some((entry) => rules.lethalEventKeywords.some(

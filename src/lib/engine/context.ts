@@ -138,13 +138,15 @@ function outputContractOpen(world: WorldSetting, character: CharacterState): str
   const worldWritable = (world.worldAttributes ?? [])
     .filter((attribute) => attribute.key !== open.worldProgress?.stageKey)
     .map((attribute) => `"${attribute.key}"（${attribute.label}）`).join('、');
-  const worldField = worldWritable ? `\n  "worldDeltas": { "${open.worldProgress?.progressKey ?? 'progress'}": 0 },` : '';
+  const worldField = worldWritable ? `\n  "worldDeltas": { "${open.worldProgress?.progressKey ?? world.worldAttributes?.[0]?.key ?? 'resource'}": 0 },` : '';
   const worldInstruction = worldWritable
-    ? `\n- 世界变化只用这些键：${worldWritable}。殖民地阶段由程序依据建设进度判定，绝不能直接写入 stage；世界进展与人物健康分开。`
+    ? `\n- 世界变化只用这些键：${worldWritable}。${open.worldProgress ? '殖民地阶段由程序依据建设进度判定，绝不能直接写入 stage；' : ''}世界进展与人物健康分开。`
     : '';
   const rankInstruction = open.earnedRank
     ? `\n- 「${attributeLabel(world, open.earnedRank.key)}」最多变化一级，且本段必须有完成委托或正式评定的 milestone 条目作为依据。只描写依据，不预告程序最终评定结果。`
     : '';
+  const custom = open.custom;
+  const customInstruction = custom ? `\n- 程序每年自动调整世界资源：${Object.entries(custom.annualWorldDeltas).map(([key, delta]) => `${world.worldAttributes?.find((attribute) => attribute.key === key)?.label ?? key} ${delta}`).join('、')}。这些自动变化不要再写进 worldDeltas。\n- 目标「${custom.objective.reason}」由程序在 ${custom.objective.scope === 'world' ? '世界' : '人物'}属性 ${custom.objective.key} 达到 ${custom.objective.threshold} 时判定。\n- 失败「${custom.failure.reason}」由程序在世界属性 ${custom.failure.key} 降到 ${custom.failure.threshold} 时判定。\n- ${custom.aging ? '人物会自然衰老。' : '人物不会仅因年龄增长而衰老，但仍会受伤或死亡。'}不要提前在故事中宣告目标完成或失败。` : '';
   return `严格只输出一个 JSON 对象，不要输出 Markdown 或解释。结构如下：
 {
   "entries": [{ "age": ${character.age + 1}, "kind": "event", "text": "具体发生的一件事", "detail": "可选，仅重大事件展开" }],
@@ -159,7 +161,7 @@ function outputContractOpen(world: WorldSetting, character: CharacterState): str
 - kind 只用 event、relationship、fortune、setback、milestone；不要使用 cultivation。
 - 属性变化只用这些键：${writable}。${careerLabel}、${healthLabel}、资源与关系各自变化；不要写自动阶位突破或等级寿命。
 - 属性变化是整段的相对增量，单项一般不超过 ±10。${healthLabel}和${careerLabel}不能仅凭年龄自动增加；年龄衰退由程序单独结算。
-- 人物的职业或任务进度不是世界阶段，不能用人物属性代替世界变化。${worldInstruction}${rankInstruction}
+- 人物的职业或任务进度不是世界阶段，不能用人物属性代替世界变化。${worldInstruction}${rankInstruction}${customInstruction}
 - 决策只在不可轻易反悔的利益、关系、健康或人生目标冲突时提出，给 2~4 个不同选项。日常小事不要停车。
 - 不要在文字中预告程序尚未确认的死亡、目标完成或最终状态。结束提议由程序核准。
 - worldStatusUpdate、traitOps、inventoryOps、relationshipOps 没有变化时可省略。`;
@@ -252,8 +254,9 @@ export function buildSystemPrompt(world: WorldSetting): string {
     .join('\n');
 
   if (openLifeRules(world)) {
+    const custom = openLifeRules(world)?.custom;
     const worldAttributes = (world.worldAttributes ?? [])
-      .map((attribute) => `- ${attribute.label}（${attribute.key}）：世界状态，不属于人物`).join('\n');
+      .map((attribute) => `- ${attribute.label}（${attribute.key}）：世界状态，不属于人物；范围 ${attribute.min ?? 0}~${attribute.max ?? 100}`).join('\n');
     return `你是文字人生模拟器《${world.name}》的叙事引擎。
 
 ${world.description}
@@ -264,12 +267,13 @@ ${rules}
 ## 属性说明
 ${attributeDocs}
 ${worldAttributes ? `\n## 世界属性\n${worldAttributes}\n` : ''}
+${custom ? `\n## 程序规则\n- 每年自动资源变化：${Object.entries(custom.annualWorldDeltas).map(([key, delta]) => `${key} ${delta}`).join('、')}。\n- 达成目标：${custom.objective.key} ${custom.objective.operator === 'gte' ? '达到' : '降到'} ${custom.objective.threshold}。\n- 目标失败：${custom.failure.key} 降到 ${custom.failure.threshold}。\n- ${custom.aging ? '人物自然衰老。' : '人物不会因年龄自然衰老。'}\n` : ''}
 
 ## 你的职责
 1. 依据既有事实和这个世界的法则推进人生，写出一段岁月中的具体事件与人物关系。
 2. 玩家行动只是尝试，结果须符合现有资源、健康、关系和世界法则。
 3. 人物的目标、资源、健康和关系各自演变。没有自动阶位突破，也不因地位提升而延长寿命。
-4. 时间有限，重要决定有代价；不要把“成功”简化为收入或社会阶层上升。
+4. 重要决定有代价；不要把“成功”简化为收入或社会阶层上升。
 5. 条目写具体的人、地点、物件与动作；重要事件才给完整 detail。
 6. 只使用列出的属性键，按 JSON 契约输出。`;
   }
@@ -436,7 +440,7 @@ export function buildEpilogueUserMessage(input: EpilogueInput): string {
     : '';
 
   return `## 结局
-类型：${ending.type === 'death' ? '死亡' : openLifeRules(world) ? '人生收束' : '圆满'}
+类型：${ending.type === 'death' ? '死亡' : ending.type === 'failure' ? '目标失败' : openLifeRules(world) ? '目标完成或人生收束' : '圆满'}
 原因：${ending.reason}
 ${ending.narrative}
 
@@ -446,7 +450,7 @@ ${formatCharacterState(world, input.character)}
 ## 一生轨迹
 ${finalState}${finalWorldState}
 - 总段落数：${input.stats.totalSegments}
-- ${ending.type === 'death' ? '享年' : '收束时年龄'}：${input.character.age} 岁
+- ${ending.type === 'death' ? '享年' : '结束时年龄'}：${input.character.age} 岁
 
 ## 历史摘要
 ${input.historySummary.trim() === '' ? '（无摘要。）' : input.historySummary.trim()}

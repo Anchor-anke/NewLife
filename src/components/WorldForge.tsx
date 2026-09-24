@@ -5,6 +5,7 @@ import { Badge, Button, Panel, Spinner, TextArea } from '@/components/ui';
 import type { SimulationReport } from '@/lib/engine/simulate';
 import { useModelSettings } from '@/lib/hooks/useModelSettings';
 import { visibleAttributes } from '@/lib/engine/ruleset';
+import type { WorldSetting } from '@/lib/engine/types';
 import { newId } from '@/lib/services/gameService';
 import { putCustomWorld, type CustomWorldRecord } from '@/lib/storage/customWorlds';
 import { ForgeError, forgeWorld, type ForgeStage } from '@/lib/worlds/forge';
@@ -42,6 +43,10 @@ function describePacing(report: SimulationReport): string[] {
     `登顶 ${percent(report.ascensionRate)}`,
     `终局阶位铺开 ${report.tierHistogram.size} 种`,
   ];
+}
+
+function conditionLabel(world: WorldSetting, scope: 'actor' | 'world', key: string): string {
+  return (scope === 'actor' ? world.attributes : world.worldAttributes)?.find((attribute) => attribute.key === key)?.label ?? key;
 }
 
 export function WorldForge({
@@ -121,7 +126,7 @@ export function WorldForge({
       <div className="space-y-4">
         <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="人生规则模板">
           {([
-            { value: 'open_life', title: '开放人生', detail: '选择、健康和目标各自变化，没有自动等级与晋阶续命。' },
+            { value: 'open_life', title: '自定生存与目标', detail: '生成资源消耗、达成目标和失败条件；可选择自然衰老。' },
             { value: 'ranked', title: '阶位成长', detail: '积累进度、突破阶位，并受对应寿元限制。' },
           ] as const).map((option) => (
             <button
@@ -211,7 +216,7 @@ export function WorldForge({
             </div>
 
             {report && 'kind' in report ? (
-              <p className="text-xs text-ink-500">开放人生 · {report.startingAge} 岁开局 · 健康与年龄独立决定人物生命</p>
+              <p className="text-xs text-ink-500">自定规则 · {report.startingAge} 岁开局 · {record.world.ruleset?.custom?.aging ? '会自然衰老' : '不会因年龄自然衰老'}</p>
             ) : (
               <div>
                 <p className="mb-1.5 text-xs tracking-wide text-ink-500">阶位体系</p>
@@ -230,6 +235,15 @@ export function WorldForge({
                   {record.world.mechanics.lifespanByRealm[0]} →{' '}
                   {record.world.mechanics.lifespanByRealm[record.world.mechanics.lifespanByRealm.length - 1]} 岁
                 </p>
+              </div>
+            )}
+
+            {record.world.ruleset?.custom && (
+              <div className="space-y-1.5 text-xs text-ink-400">
+                <p className="tracking-wide text-ink-500">可执行规则</p>
+                <p>目标：{record.world.ruleset.custom.objective.reason} · {conditionLabel(record.world, record.world.ruleset.custom.objective.scope, record.world.ruleset.custom.objective.key)} 达到 {record.world.ruleset.custom.objective.threshold}</p>
+                <p>失败：{record.world.ruleset.custom.failure.reason} · {conditionLabel(record.world, record.world.ruleset.custom.failure.scope, record.world.ruleset.custom.failure.key)} 降至 {record.world.ruleset.custom.failure.threshold}</p>
+                <p>世界资源：{record.world.worldAttributes?.map((resource) => `${resource.label} ${resource.initialValue}（每年 ${record.world.ruleset?.custom?.annualWorldDeltas[resource.key] ?? 0}）`).join(' · ')}</p>
               </div>
             )}
 
@@ -261,7 +275,7 @@ export function WorldForge({
               <p className="mb-1.5 text-xs tracking-wide text-ink-500">{report && 'kind' in report ? '规则检查' : '数值校准结果'}</p>
               <p className="text-xs leading-relaxed text-ink-400">
                 {'kind' in report
-                  ? `无事件变化的推进在 ${report.neutralSegments} 段后因${report.neutralEnding === 'health' ? '健康' : report.neutralEnding === 'old-age' ? '自然年龄' : '未知原因'}收束；这是规则检查，不预测实际剧情。`
+                  ? `无事件变化的推进在 ${report.neutralSegments} 段后因${({ health: '健康', 'old-age': '自然年龄', objective: '目标达成', resource: '资源耗尽', 'turn-limit': '段落上限', missing: '未知原因' } as const)[report.neutralEnding]}收束；这是规则检查，不预测实际剧情。`
                   : describePacing(report).join(' · ')}
               </p>
             </div>

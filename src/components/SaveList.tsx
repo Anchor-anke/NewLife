@@ -36,7 +36,7 @@ function SaveCard({
   const realmLabel = world.mechanics.realmNames[realm] ?? `第 ${realm} 阶`;
   const ended = save.status === 'ended';
   const ageLabel = ended
-    ? save.ending?.type === 'death' ? '享年' : '收束于'
+    ? save.ending?.type === 'death' ? '享年' : '结束时年龄'
     : '年龄';
 
   async function handleExport() {

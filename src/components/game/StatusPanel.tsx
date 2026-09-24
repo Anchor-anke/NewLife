@@ -47,6 +47,11 @@ export function StatusPanel({
   );
 
   const relationships = Object.entries(character.relationships);
+  const custom = open?.custom;
+  const conditionValue = (scope: 'actor' | 'world', key: string) =>
+    scope === 'actor' ? character.attributes[key] : worldAttributes?.[key];
+  const conditionLabel = (scope: 'actor' | 'world', key: string) =>
+    (scope === 'actor' ? world.attributes : world.worldAttributes)?.find((attribute) => attribute.key === key)?.label ?? key;
 
   return (
     <div className="space-y-4">
@@ -96,6 +101,16 @@ export function StatusPanel({
           />
         </div>}
       </Panel>
+
+      {custom && (
+        <Panel title="本局目标">
+          <div className="space-y-2 text-sm text-ink-300">
+            <p>达成：{custom.objective.reason} · {conditionLabel(custom.objective.scope, custom.objective.key)} {conditionValue(custom.objective.scope, custom.objective.key) ?? '—'} / {custom.objective.threshold}</p>
+            <p>失败：{custom.failure.reason} · {conditionLabel(custom.failure.scope, custom.failure.key)} {conditionValue(custom.failure.scope, custom.failure.key) ?? '—'}，降至 {custom.failure.threshold} 时结束</p>
+            <p className="text-xs text-ink-500">{custom.aging ? '人物会自然衰老' : '人物不会因年龄自然衰老'}</p>
+          </div>
+        </Panel>
+      )}
 
       {primary.length > 0 && (
         <Panel title="属性">

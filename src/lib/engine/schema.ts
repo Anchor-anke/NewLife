@@ -254,6 +254,14 @@ const zTalent = z.object({
 });
 
 const zEndingPair = z.object({ reason: z.string(), narrative: z.string() });
+const zCustomWorldCondition = z.object({
+  scope: z.enum(['actor', 'world']),
+  key: z.string(),
+  operator: z.enum(['gte', 'lte']),
+  threshold: z.number(),
+  reason: z.string(),
+  narrative: z.string(),
+});
 
 const zEndingTexts = z.object({
   lifespan: zEndingPair,
@@ -295,6 +303,12 @@ const zWorldSetting = z.object({
     earnedRank: z.object({ key: z.string(), evidenceKeywords: z.array(z.string()) }).optional(),
     worldProgress: z.object({
       stageKey: z.string(), progressKey: z.string(), stageNames: z.array(z.string()), threshold: z.number(),
+    }).optional(),
+    custom: z.object({
+      aging: z.boolean(),
+      annualWorldDeltas: z.record(z.string(), z.number()),
+      objective: zCustomWorldCondition,
+      failure: zCustomWorldCondition,
     }).optional(),
   }).optional(),
   mechanics: z.object({
@@ -347,7 +361,7 @@ const zCharacterState = z.object({
 });
 
 const zEnding = z.object({
-  type: z.enum(['death', 'completion']),
+  type: z.enum(['death', 'completion', 'failure']),
   reason: z.string(),
   narrative: z.string(),
   atSegmentId: z.number(),

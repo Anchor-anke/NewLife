@@ -18,11 +18,12 @@ export function EndingPanel({
 
   const { ending } = save;
   const isDeath = ending.type === 'death';
+  const isFailure = ending.type === 'failure';
 
   return (
     <Panel
-      title={isDeath ? '此生终了' : '故事收束'}
-      description={`第 ${ending.atSegmentId} 段 · 享年 ${save.character.age} 岁 · 共 ${save.stats.totalSegments} 段`}
+      title={isDeath ? '此生终了' : isFailure ? '目标失败' : '故事收束'}
+      description={`第 ${ending.atSegmentId} 段 · ${isDeath ? '享年' : '人物年龄'} ${save.character.age} 岁 · 共 ${save.stats.totalSegments} 段`}
       actions={
         <Button onClick={onGenerate} disabled={generating}>
           {generating ? <Spinner /> : null}
@@ -32,7 +33,7 @@ export function EndingPanel({
     >
       <div className="space-y-4">
         <div>
-          <p className={`font-narrative tracking-wide ${isDeath ? 'text-cinnabar-300' : 'text-gold-300'}`}>
+          <p className={`font-narrative tracking-wide ${isDeath || isFailure ? 'text-cinnabar-300' : 'text-gold-300'}`}>
             {ending.reason}
           </p>
           <p className="prose-narrative mt-2 text-ink-200">{ending.narrative}</p>

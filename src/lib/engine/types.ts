@@ -193,6 +193,23 @@ export interface OpenLifeRules {
   earnedRank?: { key: string; evidenceKeywords: string[] };
   /** 集体建设的阶段属于世界，不能作为人物的寿命等级。 */
   worldProgress?: { stageKey: string; progressKey: string; stageNames: string[]; threshold: number };
+  /** 自建世界的可执行规则；缺失时保持既有开放人生存档的行为。 */
+  custom?: {
+    aging: boolean;
+    /** 每过一年由程序结算的世界资源变化，不依赖模型是否提及。 */
+    annualWorldDeltas: Record<string, number>;
+    objective: CustomWorldCondition;
+    failure: CustomWorldCondition;
+  };
+}
+
+export interface CustomWorldCondition {
+  scope: 'actor' | 'world';
+  key: string;
+  operator: 'gte' | 'lte';
+  threshold: number;
+  reason: string;
+  narrative: string;
 }
 
 /**
@@ -388,7 +405,7 @@ export interface CharacterState {
 }
 
 export interface Ending {
-  type: 'death' | 'completion';
+  type: 'death' | 'completion' | 'failure';
   reason: string;
   /** 结局时的叙事收束文本 */
   narrative: string;
@@ -441,7 +458,9 @@ export type EndingCause =
   | 'ascension'
   | 'turn-limit'
   | 'proposed-death'
-  | 'proposed-completion';
+  | 'proposed-completion'
+  | 'custom-objective'
+  | 'custom-failure';
 
 export interface BreakthroughRecord {
   attempted: boolean;

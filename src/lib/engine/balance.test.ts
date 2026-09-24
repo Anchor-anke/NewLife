@@ -29,6 +29,8 @@ const CAUSE_LABELS: Record<EndingCause | 'unfinished', string> = {
   'turn-limit': '段落数上限',
   'proposed-death': '剧情致死',
   'proposed-completion': '剧情圆满',
+  'custom-objective': '自建世界目标达成',
+  'custom-failure': '自建世界目标失败',
   unfinished: '未结束',
 };
 

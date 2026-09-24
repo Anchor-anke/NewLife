@@ -792,12 +792,12 @@ async function scenarioOpenForge(page, consoleErrors) {
   await configureModel(page);
   await page.goto(`${BASE_URL}/new`, { waitUntil: 'load' });
   await page.getByRole('button', { name: '＋ 创建世界' }).click();
-  record('开放工坊：默认选择开放人生', await page.getByRole('button', { name: '开放人生' }).getAttribute('aria-pressed') === 'true');
+  record('开放工坊：默认选择自定生存与目标', await page.getByRole('button', { name: /自定生存与目标/ }).getAttribute('aria-pressed') === 'true');
   await page.getByPlaceholder(/灾后荒原上/).fill('灾后荒原里守着一座图书馆的人');
   await page.getByRole('button', { name: '生成世界' }).click();
   await page.getByText('荒原书屋').first().waitFor({ timeout: 120000 });
   const preview = await page.locator('main').innerText();
-  record('开放工坊：预览没有阶位与寿元表', preview.includes('规则检查') && !preview.includes('阶位体系') && !preview.includes('寿元上限'));
+  record('开放工坊：预览显示资源目标且没有阶位寿元表', preview.includes('公共补给') && preview.includes('馆藏得以保存') && preview.includes('规则检查') && !preview.includes('阶位体系') && !preview.includes('寿元上限'));
   await page.screenshot({ path: path.join(SHOT_DIR, '14-open-forge.png'), fullPage: true });
   await page.getByRole('button', { name: '用这个世界开始' }).click();
   await page.fill('#name', '阿宁');
@@ -806,7 +806,7 @@ async function scenarioOpenForge(page, consoleErrors) {
   await page.getByRole('button', { name: '开始这一生' }).click();
   await waitForSegments(page, 1);
   const sidebar = await page.locator('aside').first().innerText();
-  record('开放工坊：自定义世界可推进且显示对应属性', sidebar.includes('守书') && !sidebar.includes('阶位'));
+  record('开放工坊：自定义世界可推进且显示对应属性和目标', sidebar.includes('守书') && sidebar.includes('公共补给') && sidebar.includes('馆藏得以保存') && !sidebar.includes('阶位'));
   const saved = await page.evaluate(async () => {
     const request = indexedDB.open('newlife');
     const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
@@ -814,7 +814,10 @@ async function scenarioOpenForge(page, consoleErrors) {
     db.close();
     return saves.find((save) => save.world.name === '荒原书屋');
   });
-  record('开放工坊：存档使用新规则且不含旧阶位', saved?.world.ruleset?.kind === 'open_life' && saved?.rulesetVersion === 2 && saved?.character.attributes.stratum === undefined);
+  record('开放工坊：存档保存可执行资源规则', saved?.world.ruleset?.kind === 'open_life' && saved?.rulesetVersion === 2 && saved?.character.attributes.stratum === undefined && saved?.world.ruleset?.custom?.objective?.key === 'archive' && saved?.worldAttributes?.supplies < 50);
+  record('开放工坊：资源耗尽由程序判为失败且人物仍活着', saved?.ending?.type === 'failure' && saved?.character.isAlive === true && saved?.worldAttributes?.supplies === 0);
+  await page.getByText('目标失败', { exact: true }).first().waitFor({ timeout: 30000 });
+  await resetMockState();
   record('开放工坊：无控制台错误', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
 }
 
